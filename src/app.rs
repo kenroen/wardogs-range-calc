@@ -8,6 +8,10 @@ use crate::clipboard::Watcher;
 use crate::coords::{self, Coord, Reach, Solution, WEAPONS};
 use crate::theme;
 
+/// Fixed window dimensions.
+pub const WINDOW_W: f32 = 560.0;
+pub const WINDOW_H: f32 = 820.0;
+
 /// How long a field glows after the clipboard fills it, in seconds.
 const FLASH_SECS: f64 = 0.9;
 
@@ -337,7 +341,7 @@ impl App {
     }
     fn footer(&self, ui: &mut Ui) {
         const REPO_URL: &str = "https://github.com/kenroen/wardogs-range-calc";
-        ui.horizontal(|ui| {
+        ui.horizontal_centered(|ui| {
             let resp = ui
                 .add(
                     egui::Label::new(
@@ -369,32 +373,36 @@ impl eframe::App for App {
             let level = if self.s.on_top { egui::WindowLevel::AlwaysOnTop } else { egui::WindowLevel::Normal };
             ctx.send_viewport_cmd(egui::ViewportCommand::WindowLevel(level));
             self.applied_on_top = Some(self.s.on_top);
+            // Ensure any previously persisted smaller window size is reset to the fixed height.
+            ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(vec2(WINDOW_W, WINDOW_H)));
         }
     }
 
     fn ui(&mut self, ui: &mut Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
         let inset = chrome::FRAME_INSET as i8;
+        egui::Panel::bottom("footer")
+            .frame(egui::Frame::new().fill(theme::BG).inner_margin(Margin { left: inset + 10, right: inset + 10, top: 4, bottom: inset + 6 }))
+            .exact_size(32.0)
+            .resizable(false)
+            .show_separator_line(false)
+            .show(ui, |ui| self.footer(ui));
         egui::CentralPanel::default()
-            .frame(egui::Frame::new().fill(theme::BG).inner_margin(Margin { left: inset + 10, right: inset + 10, top: inset + 8, bottom: inset + 8 }))
+            .frame(egui::Frame::new().fill(theme::BG).inner_margin(Margin { left: inset + 10, right: inset + 10, top: inset + 8, bottom: 4 }))
             .show(ui, |ui| {
-                egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
-                    self.header(ui);
-                    ui.add_space(8.0);
-                    self.routing(ui);
-                    ui.add_space(8.0);
-                    self.coord_card(ui, Slot::Me, "GUN POSITION");
-                    ui.add_space(8.0);
-                    self.coord_card(ui, Slot::Target, "IMPACT POINT");
-                    ui.add_space(10.0);
-                    self.solution(ui);
-                    ui.add_space(10.0);
-                    self.actions(ui);
-                    ui.add_space(6.0);
-                    self.settings(ui);
-                    ui.add_space(8.0);
-                    self.footer(ui);
-                });
+                self.header(ui);
+                ui.add_space(8.0);
+                self.routing(ui);
+                ui.add_space(8.0);
+                self.coord_card(ui, Slot::Me, "GUN POSITION");
+                ui.add_space(8.0);
+                self.coord_card(ui, Slot::Target, "IMPACT POINT");
+                ui.add_space(10.0);
+                self.solution(ui);
+                ui.add_space(10.0);
+                self.actions(ui);
+                ui.add_space(6.0);
+                self.settings(ui);
             });
         chrome::window_frame(&ctx);
     }
