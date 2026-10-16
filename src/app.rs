@@ -130,14 +130,6 @@ impl App {
             crosshair(ui, rect.center(), 9.0, theme::ACCENT);
             ui.label(RichText::new("WARDOGS").font(FontId::new(18.0, FontFamily::Monospace)).color(theme::ACCENT).strong());
             ui.label(RichText::new("// ARTILLERY RANGE").font(FontId::new(15.0, FontFamily::Monospace)).color(theme::MUTED));
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                if hud_button(ui, "📌 PIN TOP", theme::ACCENT, self.s.on_top)
-                    .on_hover_text("Keep window on top of other windows")
-                    .clicked()
-                {
-                    self.s.on_top = !self.s.on_top;
-                }
-            });
         });
     }
 
@@ -199,6 +191,13 @@ impl App {
                     if hud_button(ui, "CLEAR", theme::MUTED, false).on_hover_text(format!("Clear {}", slot.name())).clicked() {
                         self.text_mut(slot).clear();
                         self.flashed_at[slot as usize] = None;
+                    }
+                    if slot == Slot::Me
+                        && hud_button(ui, "PIN", theme::ACCENT, self.s.on_top)
+                            .on_hover_text("Keep window on top of other windows")
+                            .clicked()
+                    {
+                        self.s.on_top = !self.s.on_top;
                     }
                     if receiving {
                         ui.label(RichText::new("◀ NEXT PASTE").font(FontId::new(13.0, FontFamily::Monospace)).color(theme::ACCENT));
