@@ -18,7 +18,7 @@ It watches your system clipboard for in-game coordinates (such as `x95.62, y104.
 - **Instant Firing Solution**:
   - **Horizontal Range** in metres (`1` game grid unit = `100 m` by default, configurable in Map Settings).
   - **Compass Bearing** in degrees (`000.0°–360.0°`), 16-point cardinal direction, and **NATO mils** (`6400` mil circle) with an interactive compass rose.
-  - **East / North Offsets** ($\Delta\text{E}$ / $\Delta\text{N}$) in metres.
+  - **East / North Offsets** (`ΔE` / `ΔN`) in metres.
   - **Weapon Reach Envelopes**:
     - **L81 Mortar**: `132 m – 684 m` (High Arc)
     - **SPH-2**: `780 m – 2,629 m` (High Arc from `780 m`, Low Arc from `1,181 m`)
