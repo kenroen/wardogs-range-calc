@@ -133,8 +133,14 @@ impl App {
         ui.horizontal_centered(|ui| {
             let (rect, _) = ui.allocate_exact_size(vec2(22.0, 22.0), Sense::hover());
             crosshair(ui, rect.center(), 9.0, theme::ACCENT);
-            ui.label(RichText::new("WARDOGS").font(FontId::new(18.0, FontFamily::Monospace)).color(theme::ACCENT).strong());
-            ui.label(RichText::new("// ARTILLERY RANGE").font(FontId::new(15.0, FontFamily::Monospace)).color(theme::MUTED));
+            ui.add(
+                egui::Label::new(RichText::new("WARDOGS").font(FontId::new(18.0, FontFamily::Monospace)).color(theme::ACCENT).strong())
+                    .selectable(false),
+            );
+            ui.add(
+                egui::Label::new(RichText::new("// ARTILLERY RANGE").font(FontId::new(15.0, FontFamily::Monospace)).color(theme::MUTED))
+                    .selectable(false),
+            );
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 ui.spacing_mut().item_spacing.x = 0.0;
                 let h = chrome::TITLE_H;
