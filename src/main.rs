@@ -15,7 +15,8 @@ fn main() -> eframe::Result {
         .with_min_inner_size([app::WINDOW_W, app::WINDOW_H])
         .with_max_inner_size([app::WINDOW_W, app::WINDOW_H])
         .with_resizable(false)
-        .with_maximize_button(false);
+        .with_maximize_button(false)
+        .with_decorations(false);
     let options = eframe::NativeOptions {
         viewport,
         persist_window: true,

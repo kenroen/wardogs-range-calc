@@ -3,7 +3,7 @@
 use egui::{Align, Color32, CornerRadius, FontFamily, FontId, Layout, Margin, Rect, Response, RichText, Sense, Stroke, StrokeKind, Ui, vec2};
 use serde::{Deserialize, Serialize};
 
-use crate::chrome;
+use crate::chrome::{self, WindowButton};
 use crate::clipboard::Watcher;
 use crate::coords::{self, Coord, Reach, Solution, WEAPONS};
 use crate::theme;
@@ -128,12 +128,23 @@ impl App {
         self.watcher.set_paused(!on);
     }
 
-    fn header(&mut self, ui: &mut Ui) {
-        ui.horizontal(|ui| {
+    fn title_bar(&mut self, ui: &mut Ui) {
+        chrome::title_bar_drag(ui);
+        ui.horizontal_centered(|ui| {
             let (rect, _) = ui.allocate_exact_size(vec2(22.0, 22.0), Sense::hover());
             crosshair(ui, rect.center(), 9.0, theme::ACCENT);
             ui.label(RichText::new("WARDOGS").font(FontId::new(18.0, FontFamily::Monospace)).color(theme::ACCENT).strong());
             ui.label(RichText::new("// ARTILLERY RANGE").font(FontId::new(15.0, FontFamily::Monospace)).color(theme::MUTED));
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                ui.spacing_mut().item_spacing.x = 0.0;
+                let h = chrome::TITLE_H;
+                if chrome::window_button(ui, WindowButton::Close, h).clicked() {
+                    ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
+                }
+                if chrome::window_button(ui, WindowButton::Minimize, h).clicked() {
+                    ui.ctx().send_viewport_cmd(egui::ViewportCommand::Minimized(true));
+                }
+            });
         });
     }
 
@@ -381,6 +392,12 @@ impl eframe::App for App {
     fn ui(&mut self, ui: &mut Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
         let inset = chrome::FRAME_INSET as i8;
+        egui::Panel::top("title-bar")
+            .frame(egui::Frame::new().fill(theme::BG).inner_margin(Margin { left: inset + 10, right: inset - 2, top: 4, bottom: 0 }))
+            .exact_size(chrome::TITLE_H)
+            .resizable(false)
+            .show_separator_line(false)
+            .show(ui, |ui| self.title_bar(ui));
         egui::Panel::bottom("footer")
             .frame(egui::Frame::new().fill(theme::BG).inner_margin(Margin { left: inset + 10, right: inset + 10, top: 4, bottom: inset + 6 }))
             .exact_size(32.0)
@@ -388,10 +405,8 @@ impl eframe::App for App {
             .show_separator_line(false)
             .show(ui, |ui| self.footer(ui));
         egui::CentralPanel::default()
-            .frame(egui::Frame::new().fill(theme::BG).inner_margin(Margin { left: inset + 10, right: inset + 10, top: inset + 8, bottom: 4 }))
+            .frame(egui::Frame::new().fill(theme::BG).inner_margin(Margin { left: inset + 10, right: inset + 10, top: 6, bottom: 4 }))
             .show(ui, |ui| {
-                self.header(ui);
-                ui.add_space(8.0);
                 self.routing(ui);
                 ui.add_space(8.0);
                 self.coord_card(ui, Slot::Me, "GUN POSITION");

@@ -1,13 +1,16 @@
-//! Decorative HUD frame with corner brackets inside the standard window.
+//! The borderless window's chrome: a HUD-style frame with corner brackets, a custom title bar
+//! that moves the window, and its Minimize / Close caption buttons.
 
-use egui::{CornerRadius, Pos2, Rect, Stroke, StrokeKind, pos2, vec2};
+use egui::{Color32, CornerRadius, Pos2, Rect, Response, Sense, Stroke, StrokeKind, Ui, pos2, vec2};
 
 use crate::theme;
 
+/// Height of the custom title bar.
+pub const TITLE_H: f32 = 40.0;
 /// Space the decorative frame takes on each side; the content sits inside it.
 pub const FRAME_INSET: f32 = 8.0;
 
-/// Paints the decorative HUD frame around the inside of the window.
+/// Paints the decorative HUD frame around the borderless window.
 pub fn window_frame(ctx: &egui::Context) {
     let focused = ctx.input(|i| i.viewport().focused.unwrap_or(true));
     let r = ctx.content_rect();
@@ -49,4 +52,53 @@ pub fn window_frame(ctx: &egui::Context) {
     ticks(pos2(r.left() + 40.0, bottom_y), pos2(r.right() - 40.0, bottom_y), 32, vec2(0.0, -1.0));
     ticks(pos2(r.left() + 1.0, r.top() + 50.0), pos2(r.left() + 1.0, r.bottom() - 40.0), 16, vec2(1.0, 0.0));
     ticks(pos2(r.right() - 1.0, r.top() + 50.0), pos2(r.right() - 1.0, r.bottom() - 40.0), 16, vec2(-1.0, 0.0));
+
+    // A glowing accent rule along the very top.
+    let top = Rect::from_min_max(pos2(r.left() + len + 8.0, r.top() + 1.0), pos2(r.right() - len - 8.0, r.top() + 3.0));
+    painter.rect_filled(top, CornerRadius::ZERO, accent.gamma_multiply(0.35));
+}
+
+/// Dragging the title bar's empty space moves the window. Call before drawing the bar's
+/// controls so buttons stay clickable on top.
+pub fn title_bar_drag(ui: &mut Ui) {
+    let rect = ui.max_rect();
+    let resp = ui.interact(rect, ui.id().with("title-bar"), Sense::click_and_drag());
+    if resp.drag_started_by(egui::PointerButton::Primary) {
+        ui.ctx().send_viewport_cmd(egui::ViewportCommand::StartDrag);
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WindowButton {
+    Minimize,
+    Close,
+}
+
+/// A caption button (`Minimize` or `Close`), `height` tall.
+pub fn window_button(ui: &mut Ui, button: WindowButton, height: f32) -> Response {
+    let (rect, resp) = ui.allocate_exact_size(vec2(44.0, height), Sense::click());
+    let hovered = resp.hovered();
+    let (fill, ink) = match (button, hovered) {
+        (WindowButton::Close, true) => (Color32::from_rgb(0xc4, 0x2b, 0x1c), Color32::WHITE),
+        (_, true) => (theme::LINE, theme::INK),
+        (_, false) => (Color32::TRANSPARENT, theme::MUTED),
+    };
+    let p = ui.painter();
+    p.rect_filled(rect, CornerRadius::ZERO, fill);
+    let c = rect.center();
+    let stroke = Stroke::new(1.4, ink);
+    let s = 5.5;
+    let label = match button {
+        WindowButton::Minimize => {
+            p.hline(c.x - s..=c.x + s, c.y, stroke);
+            "Minimize"
+        }
+        WindowButton::Close => {
+            p.line_segment([c + vec2(-s, -s), c + vec2(s, s)], stroke);
+            p.line_segment([c + vec2(-s, s), c + vec2(s, -s)], stroke);
+            "Close"
+        }
+    };
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, label));
+    resp.on_hover_text(label).on_hover_cursor(egui::CursorIcon::PointingHand)
 }
