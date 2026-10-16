@@ -335,6 +335,28 @@ impl App {
                 });
             });
     }
+    fn footer(&self, ui: &mut Ui) {
+        const REPO_URL: &str = "https://github.com/kenroen/wardogs-range-calc";
+        ui.horizontal(|ui| {
+            let resp = ui
+                .add(
+                    egui::Label::new(
+                        RichText::new("https://github.com/kenroen/wardogs-range-calc ↗")
+                            .font(FontId::new(13.0, FontFamily::Monospace))
+                            .color(theme::MUTED),
+                    )
+                    .sense(Sense::click()),
+                )
+                .on_hover_text("Open GitHub repository")
+                .on_hover_cursor(egui::CursorIcon::PointingHand);
+            if resp.hovered() {
+                ui.painter().hline(resp.rect.x_range(), resp.rect.bottom(), Stroke::new(1.0, theme::ACCENT));
+            }
+            if resp.clicked() {
+                ui.ctx().open_url(egui::OpenUrl::new_tab(REPO_URL));
+            }
+        });
+    }
 }
 
 impl eframe::App for App {
@@ -370,6 +392,8 @@ impl eframe::App for App {
                     self.actions(ui);
                     ui.add_space(6.0);
                     self.settings(ui);
+                    ui.add_space(8.0);
+                    self.footer(ui);
                 });
             });
         chrome::window_frame(&ctx);

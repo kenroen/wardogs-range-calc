@@ -11,8 +11,9 @@ fn main() -> eframe::Result {
     let viewport = egui::ViewportBuilder::default()
         .with_title("WARDOGS // Artillery Range")
         .with_app_id("wardogs-range-calc")
-        .with_inner_size([560.0, 760.0])
-        .with_min_inner_size([480.0, 640.0]);
+        .with_inner_size([560.0, 780.0])
+        .with_min_inner_size([480.0, 660.0])
+        .with_maximize_button(false);
     let options = eframe::NativeOptions {
         viewport,
         persist_window: true,
