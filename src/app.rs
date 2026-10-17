@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use crate::chrome::{self, WindowButton};
 use crate::clipboard::Watcher;
 use crate::coords::{self, Coord, Reach, Solution, WEAPONS};
+use crate::elevation::{self, GameMap};
 use crate::theme;
 
 /// Fixed window dimensions.
@@ -54,6 +55,7 @@ struct Saved {
     y_north: bool,
     on_top: bool,
     saved_targets: Vec<SavedTarget>,
+    map: GameMap,
 }
 
 impl Default for Saved {
@@ -66,6 +68,7 @@ impl Default for Saved {
             y_north: true,
             on_top: false,
             saved_targets: Vec::new(),
+            map: GameMap::Bakurani,
         }
     }
 }
@@ -151,6 +154,22 @@ impl App {
         });
     }
 
+    fn map_selector(&mut self, ui: &mut Ui) {
+        ui.horizontal(|ui| {
+            caption(ui, "MAP");
+            for &map in &GameMap::ALL {
+                let selected = self.s.map == map;
+                let color = if selected { theme::ACCENT } else { theme::MUTED };
+                if hud_button(ui, map.name(), color, selected)
+                    .on_hover_text(format!("Select {} map elevation model", map.name()))
+                    .clicked()
+                {
+                    self.s.map = map;
+                }
+            }
+        });
+    }
+
     fn routing(&mut self, ui: &mut Ui) {
         ui.allocate_ui_with_layout(
             vec2(ui.available_width(), 28.0),
@@ -224,6 +243,9 @@ impl App {
                 Some(c) => {
                     small(ui, &format!("E {:.2}", c.x), theme::INK);
                     small(ui, &format!("N {:.2}", c.y), theme::INK);
+                    if let Some(alt) = elevation::elevation_at(self.s.map, c) {
+                        small(ui, &format!("ALT {:.0} m", alt), theme::INK);
+                    }
                     small(ui, "✔ LOCKED", theme::GOOD);
                 }
                 None if empty => small(ui, "AWAITING COORDINATES", theme::MUTED),
@@ -320,7 +342,9 @@ impl App {
     }
 
     fn solution(&mut self, ui: &mut Ui) {
-        let solution = self.coord(Slot::Me).zip(self.coord(Slot::Target)).map(|(me, target)| Solution::between(me, target, self.s.metres_per_unit, self.s.y_north, crate::elevation::GameMap::Flat));
+        let solution = self.coord(Slot::Me).zip(self.coord(Slot::Target)).map(|(me, target)| {
+            Solution::between(me, target, self.s.metres_per_unit, self.s.y_north, self.s.map)
+        });
         egui::Frame::new().fill(theme::FIELD).stroke(Stroke::new(1.0, theme::LINE_STRONG)).inner_margin(Margin::same(14)).show(ui, |ui| {
             ui.set_width(ui.available_width());
             let Some(s) = solution else {
@@ -337,7 +361,7 @@ impl App {
                 caption(ui, "RANGE");
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                     if hud_button(ui, "COPY", theme::MUTED, false).on_hover_text("Copy the range and bearing").clicked() {
-                        ui.ctx().copy_text(format!("{:.0} m, {:.1}° ({:.0} mil)", s.range_m, s.bearing_deg, s.bearing_mils()));
+                        ui.ctx().copy_text(format_solution_copy(&s));
                     }
                 });
             });
@@ -353,6 +377,21 @@ impl App {
                     });
                 });
             });
+            if let Some(dz) = s.delta_z_m {
+                ui.horizontal(|ui| {
+                    small(ui, &format!("3D SLANT: {:.0} m", s.slant_range_m), theme::INK);
+                    small(ui, "·", theme::MUTED);
+                    small(ui, &format!("ΔZ: {:+.0} m", dz), theme::INK);
+                    let (badge_text, badge_color) = if dz > 0.5 {
+                        ("(UPHILL)", theme::ACCENT)
+                    } else if dz < -0.5 {
+                        ("(DOWNHILL)", theme::GOOD)
+                    } else {
+                        ("(LEVEL)", theme::MUTED)
+                    };
+                    small(ui, badge_text, badge_color);
+                });
+            }
             ui.horizontal(|ui| {
                 small(ui, &format!("ΔE {:+.0} m", s.east_m), theme::MUTED);
                 small(ui, &format!("ΔN {:+.0} m", s.north_m), theme::MUTED);
@@ -456,6 +495,8 @@ impl eframe::App for App {
         egui::CentralPanel::default()
             .frame(egui::Frame::new().fill(theme::BG).inner_margin(Margin { left: inset + 10, right: inset + 10, top: 6, bottom: 4 }))
             .show(ui, |ui| {
+                self.map_selector(ui);
+                ui.add_space(6.0);
                 self.routing(ui);
                 ui.add_space(8.0);
                 self.coord_card(ui, Slot::Me, "GUN POSITION");
@@ -477,6 +518,16 @@ impl eframe::App for App {
 
     fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
         theme::BG.to_normalized_gamma_f32()
+    }
+}
+
+pub(crate) fn format_solution_copy(s: &Solution) -> String {
+    match s.delta_z_m {
+        Some(dz) => format!(
+            "{:.0} m (3D: {:.0} m, ΔZ: {:+.0} m), {:.1}° ({:.0} mil)",
+            s.range_m, s.slant_range_m, dz, s.bearing_deg, s.bearing_mils()
+        ),
+        None => format!("{:.0} m, {:.1}° ({:.0} mil)", s.range_m, s.bearing_deg, s.bearing_mils()),
     }
 }
 
@@ -586,5 +637,30 @@ mod tests {
         if let Ok(path) = std::env::var("WARDOGS_SNAPSHOT") {
             harness.render().expect("render").save(path).expect("save");
         }
+    }
+
+    #[test]
+    fn test_saved_state_map_default_and_deserialization() {
+        let ron_str = "(me:\"x10, y20\",target:\"x30, y40\")";
+        let s: Saved = ron::from_str(ron_str).expect("should deserialize");
+        assert_eq!(s.map, crate::elevation::GameMap::Bakurani);
+
+        let ron_ozeti = "(me:\"x10, y20\",target:\"x30, y40\",map:Ozeti)";
+        let s_ozeti: Saved = ron::from_str(ron_ozeti).expect("should deserialize");
+        assert_eq!(s_ozeti.map, crate::elevation::GameMap::Ozeti);
+    }
+
+    #[test]
+    fn test_format_solution_copy() {
+        let me = Coord { x: 97.95, y: 109.49 };
+        let target = Coord { x: 76.78, y: 103.61 };
+        let sol_bakurani = Solution::between(me, target, 100.0, true, GameMap::Bakurani);
+        let copy_bakurani = format_solution_copy(&sol_bakurani);
+        assert!(copy_bakurani.contains("2197 m (3D: 2207 m, ΔZ: +213 m)"));
+        assert!(copy_bakurani.contains("254.5° (4524 mil)"));
+
+        let sol_flat = Solution::between(me, target, 100.0, true, GameMap::Flat);
+        let copy_flat = format_solution_copy(&sol_flat);
+        assert_eq!(copy_flat, "2197 m, 254.5° (4524 mil)");
     }
 }
