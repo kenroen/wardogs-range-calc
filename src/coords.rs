@@ -134,15 +134,69 @@ impl Weapon {
     }
 }
 
+use crate::ballistics::{self, FiringSolution, SPH2_SPEC, MORTAR_SPEC};
+
+/// Ballistic solutions for supported weapons (SPH-2 low/high arc, L81 mortar).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct WeaponSolutions {
+    pub sph2_low: Option<FiringSolution>,
+    pub sph2_high: Option<FiringSolution>,
+    pub mortar: Option<FiringSolution>,
+}
+
+impl WeaponSolutions {
+    pub fn compute(distance_m: f64, delta_z_m: f64) -> Self {
+        let sph2_sols = ballistics::solve_firing_solutions(&SPH2_SPEC, distance_m, delta_z_m);
+        let mut sph2_low = None;
+        let mut sph2_high = None;
+        for s in sph2_sols {
+            match s.arc {
+                ballistics::TrajectoryArc::Low => sph2_low = Some(s),
+                ballistics::TrajectoryArc::High => sph2_high = Some(s),
+            }
+        }
+
+        let mortar_sols = ballistics::solve_firing_solutions(&MORTAR_SPEC, distance_m, delta_z_m);
+        let mortar = mortar_sols.into_iter().next();
+
+        Self {
+            sph2_low,
+            sph2_high,
+            mortar,
+        }
+    }
+
+    pub fn primary_dial_m(&self, fallback_range_m: f64) -> f64 {
+        if let Some(low) = self.sph2_low {
+            low.sight_range_m
+        } else if let Some(high) = self.sph2_high {
+            high.sight_range_m
+        } else if let Some(m) = self.mortar {
+            m.sight_range_m
+        } else {
+            fallback_range_m
+        }
+    }
+}
+
 /// Range and direction from the gun to the target.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Solution {
+    /// Horizontal 2D distance in metres (used for community artillery firing tables).
     pub range_m: f64,
+    /// 3D direct line-of-sight distance in metres: sqrt(range_m^2 + delta_z^2).
+    pub slant_range_m: f64,
+    /// Height difference (Target Z - Me Z) in metres, if map elevation is enabled.
+    pub delta_z_m: Option<f64>,
+    pub me_alt_m: Option<f64>,
+    pub target_alt_m: Option<f64>,
     /// Degrees clockwise from north, `0..360`.
     pub bearing_deg: f64,
     /// East and north offsets, in metres.
     pub east_m: f64,
     pub north_m: f64,
+    /// Ballistic firing solutions (elevation-corrected sight ranges and angles).
+    pub weapons: WeaponSolutions,
 }
 
 /// NATO mils in a full circle.
@@ -150,12 +204,36 @@ pub const MILS_PER_CIRCLE: f64 = 6400.0;
 
 impl Solution {
     /// `metres_per_unit` is the map scale; `y_north` is false on maps whose Y grows southwards.
-    pub fn between(me: Coord, target: Coord, metres_per_unit: f64, y_north: bool) -> Self {
+    pub fn between(me: Coord, target: Coord, metres_per_unit: f64, y_north: bool, map: crate::elevation::GameMap) -> Self {
         let east_m = (target.x - me.x) * metres_per_unit;
         let north_m = (target.y - me.y) * metres_per_unit * if y_north { 1.0 } else { -1.0 };
         let range_m = east_m.hypot(north_m);
         let bearing_deg = if range_m == 0.0 { 0.0 } else { east_m.atan2(north_m).to_degrees().rem_euclid(360.0) };
-        Self { range_m, bearing_deg, east_m, north_m }
+        let me_alt_m = crate::elevation::elevation_at(map, me);
+        let target_alt_m = crate::elevation::elevation_at(map, target);
+        let delta_z_m = crate::elevation::delta_z(map, me, target);
+        let slant_range_m = match delta_z_m {
+            Some(dz) => range_m.hypot(dz),
+            None => range_m,
+        };
+        let ballistic_dz = delta_z_m.unwrap_or(0.0);
+        let weapons = WeaponSolutions::compute(range_m, ballistic_dz);
+        Self {
+            range_m,
+            slant_range_m,
+            delta_z_m,
+            me_alt_m,
+            target_alt_m,
+            bearing_deg,
+            east_m,
+            north_m,
+            weapons,
+        }
+    }
+
+    /// Primary dial / sight range in metres (elevation-corrected, or planar on flat map).
+    pub fn dial_range_m(&self) -> f64 {
+        self.weapons.primary_dial_m(self.range_m)
     }
 
     pub fn bearing_mils(&self) -> f64 {
@@ -212,25 +290,27 @@ mod tests {
     #[test]
     fn solution_range_and_bearing() {
         // 3-4-5 triangle: 3 units east, 4 north.
-        let s = Solution::between(c(10.0, 10.0), c(13.0, 14.0), 100.0, true);
+        let s = Solution::between(c(10.0, 10.0), c(13.0, 14.0), 100.0, true, crate::elevation::GameMap::Flat);
         assert!((s.range_m - 500.0).abs() < 1e-9);
+        assert!((s.slant_range_m - 500.0).abs() < 1e-9);
+        assert_eq!(s.delta_z_m, None);
         assert!((s.bearing_deg - 36.869_897_645).abs() < 1e-6);
 
-        let east = Solution::between(c(0.0, 0.0), c(1.0, 0.0), 100.0, true);
+        let east = Solution::between(c(0.0, 0.0), c(1.0, 0.0), 100.0, true, crate::elevation::GameMap::Flat);
         assert!((east.bearing_deg - 90.0).abs() < 1e-9);
         assert!((east.bearing_mils() - 1600.0).abs() < 1e-9);
         assert_eq!(east.compass(), "E");
 
-        let west = Solution::between(c(0.0, 0.0), c(-1.0, 0.0), 100.0, true);
+        let west = Solution::between(c(0.0, 0.0), c(-1.0, 0.0), 100.0, true, crate::elevation::GameMap::Flat);
         assert!((west.bearing_deg - 270.0).abs() < 1e-9);
 
-        let south_flipped = Solution::between(c(0.0, 0.0), c(0.0, 1.0), 100.0, false);
+        let south_flipped = Solution::between(c(0.0, 0.0), c(0.0, 1.0), 100.0, false, crate::elevation::GameMap::Flat);
         assert!((south_flipped.bearing_deg - 180.0).abs() < 1e-9);
     }
 
     #[test]
     fn example_from_the_game() {
-        let s = Solution::between(c(95.62, 104.98), c(98.10, 101.55), 100.0, true);
+        let s = Solution::between(c(95.62, 104.98), c(98.10, 101.55), 100.0, true, crate::elevation::GameMap::Flat);
         assert!((s.range_m - 423.265).abs() < 0.01, "{}", s.range_m);
     }
 
@@ -242,5 +322,29 @@ mod tests {
         assert_eq!(l81.reach(700.0), Reach::TooFar);
         assert_eq!(sph.reach(900.0), Reach::HighArc);
         assert_eq!(sph.reach(1500.0), Reach::HighOrLowArc);
+    }
+
+    #[test]
+    fn test_solution_with_elevation_slant_range() {
+        let me = c(97.95, 109.49);
+        let target = c(76.78, 103.61);
+        let sol = Solution::between(me, target, 100.0, true, crate::elevation::GameMap::Bakurani);
+        assert!((sol.range_m - 2197.14).abs() < 1.0);
+        assert!((sol.slant_range_m - 2207.0).abs() < 5.0);
+        assert!(sol.delta_z_m.is_some());
+    }
+
+    #[test]
+    fn test_user_reported_case() {
+        let gun = c(97.83, 109.32);
+        let target = c(75.28, 102.90);
+        let sol_bakurani = Solution::between(gun, target, 100.0, true, crate::elevation::GameMap::Bakurani);
+        assert!((sol_bakurani.range_m - 2345.0).abs() < 1.0);
+        // Sight range on Bakurani is elevation-corrected to ~2612-2613m
+        assert!((sol_bakurani.dial_range_m() - 2613.0).abs() < 2.0);
+
+        let sol_flat = Solution::between(gun, target, 100.0, true, crate::elevation::GameMap::Flat);
+        assert!((sol_flat.range_m - 2345.0).abs() < 1.0);
+        assert!((sol_flat.dial_range_m() - 2345.0).abs() < 1.0);
     }
 }

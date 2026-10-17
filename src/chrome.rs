@@ -62,8 +62,11 @@ pub fn window_frame(ctx: &egui::Context) {
 /// controls so buttons stay clickable on top.
 pub fn title_bar_drag(ui: &mut Ui) {
     let rect = ui.max_rect();
-    let resp = ui.interact(rect, ui.id().with("title-bar"), Sense::click_and_drag());
-    if resp.drag_started_by(egui::PointerButton::Primary) {
+    let drag_rect = Rect::from_min_max(rect.min, pos2(rect.max.x - 90.0, rect.max.y));
+    let resp = ui.interact(drag_rect, ui.id().with("title-bar"), Sense::click_and_drag());
+    if (resp.hovered() && ui.input(|i| i.pointer.button_pressed(egui::PointerButton::Primary)))
+        || resp.drag_started_by(egui::PointerButton::Primary)
+    {
         ui.ctx().send_viewport_cmd(egui::ViewportCommand::StartDrag);
     }
 }
