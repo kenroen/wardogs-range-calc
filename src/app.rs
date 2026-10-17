@@ -455,28 +455,6 @@ impl App {
                 });
             });
     }
-    fn footer(&self, ui: &mut Ui) {
-        const REPO_URL: &str = "https://github.com/kenroen/wardogs-range-calc";
-        ui.horizontal_centered(|ui| {
-            let resp = ui
-                .add(
-                    egui::Label::new(
-                        RichText::new("https://github.com/kenroen/wardogs-range-calc ↗")
-                            .font(FontId::new(13.0, FontFamily::Monospace))
-                            .color(theme::MUTED),
-                    )
-                    .sense(Sense::click()),
-                )
-                .on_hover_text("Open GitHub repository")
-                .on_hover_cursor(egui::CursorIcon::PointingHand);
-            if resp.hovered() {
-                ui.painter().hline(resp.rect.x_range(), resp.rect.bottom(), Stroke::new(1.0, theme::ACCENT));
-            }
-            if resp.clicked() {
-                ui.ctx().open_url(egui::OpenUrl::new_tab(REPO_URL));
-            }
-        });
-    }
 }
 
 impl eframe::App for App {
@@ -503,12 +481,6 @@ impl eframe::App for App {
             .resizable(false)
             .show_separator_line(false)
             .show(ui, |ui| self.title_bar(ui));
-        egui::Panel::bottom("footer")
-            .frame(egui::Frame::new().fill(theme::BG).inner_margin(Margin { left: inset + 10, right: inset + 10, top: 4, bottom: inset + 6 }))
-            .exact_size(32.0)
-            .resizable(false)
-            .show_separator_line(false)
-            .show(ui, |ui| self.footer(ui));
         egui::CentralPanel::default()
             .frame(egui::Frame::new().fill(theme::BG).inner_margin(Margin { left: inset + 10, right: inset + 10, top: 6, bottom: 4 }))
             .show(ui, |ui| {
