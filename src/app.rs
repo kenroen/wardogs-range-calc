@@ -225,13 +225,6 @@ impl App {
                         }
                         self.flashed_at[slot as usize] = None;
                     }
-                    if slot == Slot::Me
-                        && hud_button(ui, "PIN", theme::ACCENT, self.s.on_top)
-                            .on_hover_text("Keep window on top of other windows")
-                            .clicked()
-                    {
-                        self.s.on_top = !self.s.on_top;
-                    }
                     if receiving {
                         ui.label(RichText::new("◀ NEXT PASTE").font(FontId::new(13.0, FontFamily::Monospace)).color(theme::ACCENT));
                     }
