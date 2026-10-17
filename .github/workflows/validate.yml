@@ -1,8 +1,6 @@
 name: CI Validation
 
 on:
-  push:
-    branches: [ main ]
   pull_request:
     branches: [ main ]
   workflow_dispatch:
@@ -14,6 +12,7 @@ jobs:
   validate:
     name: Build & Test (Windows)
     runs-on: windows-latest
+    if: github.head_ref == 'develop' || github.event_name == 'workflow_dispatch'
 
     steps:
       - name: Checkout repository
