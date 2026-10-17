@@ -43,22 +43,12 @@ impl Slot {
     }
 }
 
-/// Where copied coordinates go.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub enum Route {
-    /// Into ME while it is empty, otherwise into TARGET.
-    Auto,
-    Me,
-    Target,
-}
-
 /// What survives a restart.
 #[derive(Serialize, Deserialize)]
 #[serde(default)]
 struct Saved {
     me: String,
     target: String,
-    route: Route,
     listening: bool,
     metres_per_unit: f64,
     y_north: bool,
@@ -71,7 +61,6 @@ impl Default for Saved {
         Self {
             me: String::new(),
             target: String::new(),
-            route: Route::Auto,
             listening: true,
             metres_per_unit: 100.0,
             y_north: true,
@@ -115,13 +104,12 @@ impl App {
         coords::parse(text, true)
     }
 
-    /// The field the next copied coordinate will go into.
+    /// The field the next copied coordinate will go into (into ME while empty, then TARGET).
     fn next_slot(&self) -> Slot {
-        match self.s.route {
-            Route::Me => Slot::Me,
-            Route::Target => Slot::Target,
-            Route::Auto if self.s.me.trim().is_empty() => Slot::Me,
-            Route::Auto => Slot::Target,
+        if self.s.me.trim().is_empty() {
+            Slot::Me
+        } else {
+            Slot::Target
         }
     }
 
@@ -164,38 +152,32 @@ impl App {
     }
 
     fn routing(&mut self, ui: &mut Ui) {
-        ui.horizontal(|ui| {
-            caption(ui, "CLIPBOARD →");
-            for (route, label, color) in [
-                (Route::Auto, "AUTO", theme::ACCENT),
-                (Route::Me, "ME", theme::ME),
-                (Route::Target, "TARGET", theme::TARGET),
-            ] {
-                let tip = match route {
-                    Route::Auto => "Copied coordinates fill ME while it is empty, then TARGET",
-                    Route::Me => "Copied coordinates always go into ME",
-                    Route::Target => "Copied coordinates always go into TARGET",
-                };
-                if hud_button(ui, label, color, self.s.route == route).on_hover_text(tip).clicked() {
-                    self.s.route = route;
-                }
-            }
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                let on = self.s.listening && self.watcher.available;
-                let label = if on { "● LISTENING" } else { "○ PAUSED" };
-                let color = if on { theme::GOOD } else { theme::MUTED };
-                let tip = if !self.watcher.available {
-                    "The clipboard can't be read on this system"
-                } else if on {
-                    "Click to stop watching the clipboard"
-                } else {
-                    "Click to watch the clipboard for coordinates"
-                };
-                if hud_button(ui, label, color, false).on_hover_text(tip).clicked() && self.watcher.available {
-                    self.set_listening(!self.s.listening);
-                }
-            });
-        });
+        ui.allocate_ui_with_layout(
+            vec2(ui.available_width(), 28.0),
+            Layout::left_to_right(Align::Center),
+            |ui| {
+                ui.label(
+                    RichText::new("CLIPBOARD")
+                        .font(FontId::new(16.0, FontFamily::Monospace))
+                        .color(theme::MUTED),
+                );
+                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    let on = self.s.listening && self.watcher.available;
+                    let label = if on { "● LISTENING" } else { "○ PAUSED" };
+                    let color = if on { theme::GOOD } else { theme::MUTED };
+                    let tip = if !self.watcher.available {
+                        "The clipboard can't be read on this system"
+                    } else if on {
+                        "Click to stop watching the clipboard"
+                    } else {
+                        "Click to watch the clipboard for coordinates"
+                    };
+                    if hud_button(ui, label, color, false).on_hover_text(tip).clicked() && self.watcher.available {
+                        self.set_listening(!self.s.listening);
+                    }
+                });
+            },
+        );
     }
 
     fn coord_card(&mut self, ui: &mut Ui, slot: Slot, title: &str) {
@@ -592,9 +574,6 @@ mod tests {
             app.receive(coord(5.0, 6.0), 0.0);
             assert_eq!(app.s.me, "x1.00, y2.00");
             assert_eq!(app.s.target, "x5.00, y6.00");
-            app.s.route = Route::Me;
-            app.receive(coord(7.0, 8.0), 0.0);
-            assert_eq!(app.s.me, "x7.00, y8.00");
 
             // Load sample game shot for rendering.
             app.s = Saved::default();
