@@ -10,10 +10,16 @@ use crate::theme;
 
 /// Fixed window dimensions.
 pub const WINDOW_W: f32 = 560.0;
-pub const WINDOW_H: f32 = 820.0;
+pub const WINDOW_H: f32 = 880.0;
 
 /// How long a field glows after the clipboard fills it, in seconds.
 const FLASH_SECS: f64 = 0.9;
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SavedTarget {
+    pub name: String,
+    pub coords: String,
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Slot {
@@ -57,6 +63,7 @@ struct Saved {
     metres_per_unit: f64,
     y_north: bool,
     on_top: bool,
+    saved_targets: Vec<SavedTarget>,
 }
 
 impl Default for Saved {
@@ -69,6 +76,7 @@ impl Default for Saved {
             metres_per_unit: 100.0,
             y_north: true,
             on_top: false,
+            saved_targets: Vec::new(),
         }
     }
 }
@@ -80,6 +88,7 @@ pub struct App {
     flashed_at: [Option<f64>; 2],
     last_clip: Option<(Coord, Slot)>,
     applied_on_top: Option<bool>,
+    target_name: String,
 }
 
 impl App {
@@ -88,7 +97,7 @@ impl App {
         let s: Saved = cc.storage.and_then(|st| eframe::get_value(st, eframe::APP_KEY)).unwrap_or_default();
         let watcher = Watcher::start(cc.egui_ctx.clone());
         watcher.set_paused(!s.listening);
-        Self { s, watcher, flashed_at: [None; 2], last_clip: None, applied_on_top: None }
+        Self { s, watcher, flashed_at: [None; 2], last_clip: None, applied_on_top: None, target_name: String::new() }
     }
 
     fn text_mut(&mut self, slot: Slot) -> &mut String {
@@ -211,6 +220,9 @@ impl App {
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                     if hud_button(ui, "CLEAR", theme::MUTED, false).on_hover_text(format!("Clear {}", slot.name())).clicked() {
                         self.text_mut(slot).clear();
+                        if slot == Slot::Target {
+                            self.target_name.clear();
+                        }
                         self.flashed_at[slot as usize] = None;
                     }
                     if slot == Slot::Me
@@ -242,11 +254,96 @@ impl App {
                 None if empty => small(ui, "AWAITING COORDINATES", theme::MUTED),
                 None => small(ui, "✖ UNREADABLE — USE x95.62, y104.98", theme::BAD),
             });
+            if slot == Slot::Target {
+                ui.add_space(4.0);
+                ui.painter().hline(ui.max_rect().x_range(), ui.cursor().top(), Stroke::new(1.0, theme::LINE));
+                ui.add_space(6.0);
+                self.saved_targets_row(ui, coord, now);
+            }
         });
         // A colour bar down the card's left edge.
         let r = resp.response.rect;
         let bar = Rect::from_min_size(r.min, vec2(4.0, r.height()));
         ui.painter().rect_filled(bar, CornerRadius::ZERO, color.gamma_multiply(0.6 + 0.4 * glow));
+    }
+
+    fn saved_targets_row(&mut self, ui: &mut Ui, current_coord: Option<Coord>, now: f64) {
+        let formatted_current = current_coord.map(|c| c.to_string());
+        let active_idx = formatted_current
+            .as_deref()
+            .and_then(|cur| self.s.saved_targets.iter().position(|t| t.coords == cur));
+
+        // Row 1: Saved targets dropdown + delete button for the selected saved target.
+        ui.horizontal(|ui| {
+            caption(ui, "SAVED");
+            let selected_label = match active_idx {
+                Some(i) => format!("{} ({})", self.s.saved_targets[i].name, self.s.saved_targets[i].coords),
+                None if self.s.saved_targets.is_empty() => "No saved targets".to_owned(),
+                None => "Select target…".to_owned(),
+            };
+            let mut chosen: Option<usize> = None;
+            egui::ComboBox::from_id_salt("saved-targets-combo")
+                .width((ui.available_width() - if active_idx.is_some() { 68.0 } else { 0.0 }).max(140.0))
+                .selected_text(RichText::new(selected_label).font(FontId::new(14.0, FontFamily::Monospace)).color(theme::INK))
+                .show_ui(ui, |ui| {
+                    for (i, entry) in self.s.saved_targets.iter().enumerate() {
+                        let is_sel = active_idx == Some(i);
+                        let label = format!("{}  —  {}", entry.name, entry.coords);
+                        if ui
+                            .selectable_label(is_sel, RichText::new(label).font(FontId::new(14.0, FontFamily::Monospace)))
+                            .clicked()
+                        {
+                            chosen = Some(i);
+                        }
+                    }
+                });
+            if let Some(i) = chosen {
+                self.s.target = self.s.saved_targets[i].coords.clone();
+                self.target_name = self.s.saved_targets[i].name.clone();
+                self.flashed_at[Slot::Target as usize] = Some(now);
+            }
+            if let Some(i) = active_idx
+                && hud_button(ui, "DEL", theme::BAD, false)
+                    .on_hover_text("Delete this saved target")
+                    .clicked()
+            {
+                self.s.saved_targets.remove(i);
+                self.target_name.clear();
+            }
+        });
+
+        // Row 2: Name input + SAVE button to save the current target coordinate.
+        ui.horizontal(|ui| {
+            let can_save = current_coord.is_some() && !self.target_name.trim().is_empty();
+            let save_w = 72.0;
+            let edit_resp = ui.add(
+                egui::TextEdit::singleline(&mut self.target_name)
+                    .font(FontId::new(15.0, FontFamily::Monospace))
+                    .hint_text("Target name (e.g. North Bunker)")
+                    .desired_width((ui.available_width() - save_w).max(120.0))
+                    .margin(Margin::symmetric(8, 5)),
+            );
+            let enter_pressed = edit_resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+            let save_color = if can_save { theme::ACCENT } else { theme::MUTED };
+            let save_clicked = hud_button(ui, "SAVE", save_color, false)
+                .on_hover_text("Save current target coordinates with this name")
+                .clicked();
+            if (save_clicked || enter_pressed)
+                && let Some(coord) = current_coord
+            {
+                let name = self.target_name.trim().to_owned();
+                if !name.is_empty() {
+                    let coords = coord.to_string();
+                    if let Some(existing) = self.s.saved_targets.iter_mut().find(|t| t.name.eq_ignore_ascii_case(&name)) {
+                        existing.name = name;
+                        existing.coords = coords.clone();
+                    } else {
+                        self.s.saved_targets.push(SavedTarget { name, coords: coords.clone() });
+                    }
+                    self.s.target = coords;
+                }
+            }
+        });
     }
 
     fn solution(&mut self, ui: &mut Ui) {
@@ -312,11 +409,13 @@ impl App {
             if hud_button(ui, "CLEAR ALL", theme::ACCENT, false).on_hover_text("Clear both positions").clicked() {
                 self.s.me.clear();
                 self.s.target.clear();
+                self.target_name.clear();
                 self.flashed_at = [None; 2];
                 self.last_clip = None;
             }
             if hud_button(ui, "CLEAR TARGET", theme::TARGET, false).on_hover_text("Keep your position, pick a new target").clicked() {
                 self.s.target.clear();
+                self.target_name.clear();
                 self.flashed_at[Slot::Target as usize] = None;
             }
             if hud_button(ui, "⇅ SWAP", theme::MUTED, false).on_hover_text("Swap ME and TARGET").clicked() {
@@ -516,7 +615,7 @@ mod tests {
     /// Set `WARDOGS_SNAPSHOT` to a PNG path to save the rendered frame.
     #[test]
     fn app_routing_and_render() {
-        let mut harness = egui_kittest::Harness::builder().with_size(vec2(560.0, 760.0)).build_eframe(|cc| App::new(cc));
+        let mut harness = egui_kittest::Harness::builder().with_size(vec2(WINDOW_W, WINDOW_H)).build_eframe(|cc| App::new(cc));
         {
             let app = harness.state_mut();
             app.s = Saved::default();
@@ -534,6 +633,10 @@ mod tests {
 
             // Load sample game shot for rendering.
             app.s = Saved::default();
+            app.s.saved_targets.push(SavedTarget {
+                name: "North Bunker".to_owned(),
+                coords: "x98.10, y101.55".to_owned(),
+            });
             app.receive(coord(95.62, 104.98), 0.0);
             app.receive(coord(98.10, 101.55), 0.0);
             app.flashed_at = [None; 2];
