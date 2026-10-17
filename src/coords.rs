@@ -134,6 +134,51 @@ impl Weapon {
     }
 }
 
+use crate::ballistics::{self, FiringSolution, SPH2_SPEC, MORTAR_SPEC};
+
+/// Ballistic solutions for supported weapons (SPH-2 low/high arc, L81 mortar).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct WeaponSolutions {
+    pub sph2_low: Option<FiringSolution>,
+    pub sph2_high: Option<FiringSolution>,
+    pub mortar: Option<FiringSolution>,
+}
+
+impl WeaponSolutions {
+    pub fn compute(distance_m: f64, delta_z_m: f64) -> Self {
+        let sph2_sols = ballistics::solve_firing_solutions(&SPH2_SPEC, distance_m, delta_z_m);
+        let mut sph2_low = None;
+        let mut sph2_high = None;
+        for s in sph2_sols {
+            match s.arc {
+                ballistics::TrajectoryArc::Low => sph2_low = Some(s),
+                ballistics::TrajectoryArc::High => sph2_high = Some(s),
+            }
+        }
+
+        let mortar_sols = ballistics::solve_firing_solutions(&MORTAR_SPEC, distance_m, delta_z_m);
+        let mortar = mortar_sols.into_iter().next();
+
+        Self {
+            sph2_low,
+            sph2_high,
+            mortar,
+        }
+    }
+
+    pub fn primary_dial_m(&self, fallback_range_m: f64) -> f64 {
+        if let Some(low) = self.sph2_low {
+            low.sight_range_m
+        } else if let Some(high) = self.sph2_high {
+            high.sight_range_m
+        } else if let Some(m) = self.mortar {
+            m.sight_range_m
+        } else {
+            fallback_range_m
+        }
+    }
+}
+
 /// Range and direction from the gun to the target.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Solution {
@@ -150,6 +195,8 @@ pub struct Solution {
     /// East and north offsets, in metres.
     pub east_m: f64,
     pub north_m: f64,
+    /// Ballistic firing solutions (elevation-corrected sight ranges and angles).
+    pub weapons: WeaponSolutions,
 }
 
 /// NATO mils in a full circle.
@@ -169,6 +216,8 @@ impl Solution {
             Some(dz) => range_m.hypot(dz),
             None => range_m,
         };
+        let ballistic_dz = delta_z_m.unwrap_or(0.0);
+        let weapons = WeaponSolutions::compute(range_m, ballistic_dz);
         Self {
             range_m,
             slant_range_m,
@@ -178,7 +227,13 @@ impl Solution {
             bearing_deg,
             east_m,
             north_m,
+            weapons,
         }
+    }
+
+    /// Primary dial / sight range in metres (elevation-corrected, or planar on flat map).
+    pub fn dial_range_m(&self) -> f64 {
+        self.weapons.primary_dial_m(self.range_m)
     }
 
     pub fn bearing_mils(&self) -> f64 {
@@ -277,5 +332,19 @@ mod tests {
         assert!((sol.range_m - 2197.14).abs() < 1.0);
         assert!((sol.slant_range_m - 2207.0).abs() < 5.0);
         assert!(sol.delta_z_m.is_some());
+    }
+
+    #[test]
+    fn test_user_reported_case() {
+        let gun = c(97.83, 109.32);
+        let target = c(75.28, 102.90);
+        let sol_bakurani = Solution::between(gun, target, 100.0, true, crate::elevation::GameMap::Bakurani);
+        assert!((sol_bakurani.range_m - 2345.0).abs() < 1.0);
+        // Sight range on Bakurani is elevation-corrected to ~2612-2613m
+        assert!((sol_bakurani.dial_range_m() - 2613.0).abs() < 2.0);
+
+        let sol_flat = Solution::between(gun, target, 100.0, true, crate::elevation::GameMap::Flat);
+        assert!((sol_flat.range_m - 2345.0).abs() < 1.0);
+        assert!((sol_flat.dial_range_m() - 2345.0).abs() < 1.0);
     }
 }

@@ -358,7 +358,7 @@ impl App {
                 return;
             };
             ui.horizontal(|ui| {
-                caption(ui, "RANGE");
+                caption(ui, if s.delta_z_m.is_some() { "DIAL RANGE (SIGHT)" } else { "RANGE" });
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                     if hud_button(ui, "COPY", theme::MUTED, false).on_hover_text("Copy the range and bearing").clicked() {
                         ui.ctx().copy_text(format_solution_copy(&s));
@@ -366,7 +366,7 @@ impl App {
                 });
             });
             ui.horizontal(|ui| {
-                ui.label(RichText::new(format!("{:.0}", s.range_m)).font(FontId::new(56.0, FontFamily::Monospace)).color(theme::ACCENT).strong());
+                ui.label(RichText::new(format!("{:.0}", s.dial_range_m())).font(FontId::new(56.0, FontFamily::Monospace)).color(theme::ACCENT).strong());
                 ui.label(RichText::new("m").font(FontId::new(26.0, FontFamily::Monospace)).color(theme::MUTED));
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                     let (rect, _) = ui.allocate_exact_size(vec2(54.0, 54.0), Sense::hover());
@@ -379,7 +379,9 @@ impl App {
             });
             if let Some(dz) = s.delta_z_m {
                 ui.horizontal(|ui| {
-                    small(ui, &format!("3D SLANT: {:.0} m", s.slant_range_m), theme::INK);
+                    small(ui, &format!("GROUND: {:.0} m", s.range_m), theme::INK);
+                    small(ui, "·", theme::MUTED);
+                    small(ui, &format!("3D: {:.0} m", s.slant_range_m), theme::MUTED);
                     small(ui, "·", theme::MUTED);
                     small(ui, &format!("ΔZ: {:+.0} m", dz), theme::INK);
                     let (badge_text, badge_color) = if dz > 0.5 {
@@ -390,6 +392,12 @@ impl App {
                         ("(LEVEL)", theme::MUTED)
                     };
                     small(ui, badge_text, badge_color);
+                });
+            } else {
+                ui.horizontal(|ui| {
+                    small(ui, &format!("GROUND: {:.0} m", s.range_m), theme::INK);
+                    small(ui, "·", theme::MUTED);
+                    small(ui, "(FLAT / NO TERRAIN)", theme::MUTED);
                 });
             }
             ui.horizontal(|ui| {
@@ -406,8 +414,20 @@ impl App {
                         let (text, color) = match w.reach(s.range_m) {
                             Reach::TooClose => (format!("TOO CLOSE · MIN {:.0} m", w.min_m), theme::BAD),
                             Reach::TooFar => (format!("OUT OF RANGE · MAX {:.0} m", w.max_m), theme::BAD),
-                            Reach::HighArc => ("IN RANGE · HIGH ARC".to_owned(), theme::GOOD),
-                            Reach::HighOrLowArc => ("IN RANGE · HIGH / LOW ARC".to_owned(), theme::GOOD),
+                            Reach::HighArc => {
+                                if let Some(sol) = s.weapons.sph2_high.or(s.weapons.mortar) {
+                                    (format!("{:.0} m · {:.0} MIL · {:.1}s", sol.sight_range_m, sol.mil, sol.flight_time_s), theme::GOOD)
+                                } else {
+                                    ("IN RANGE · HIGH ARC".to_owned(), theme::GOOD)
+                                }
+                            }
+                            Reach::HighOrLowArc => {
+                                if let (Some(low), Some(high)) = (s.weapons.sph2_low, s.weapons.sph2_high) {
+                                    (format!("LOW {:.0}m ({:.0}mil) / HIGH {:.0}m ({:.0}mil)", low.sight_range_m, low.mil, high.sight_range_m, high.mil), theme::GOOD)
+                                } else {
+                                    ("IN RANGE · HIGH / LOW ARC".to_owned(), theme::GOOD)
+                                }
+                            }
                         };
                         small(ui, &text, color);
                     });
@@ -522,11 +542,21 @@ impl eframe::App for App {
 }
 
 pub(crate) fn format_solution_copy(s: &Solution) -> String {
+    let dial = s.dial_range_m();
     match s.delta_z_m {
-        Some(dz) => format!(
-            "{:.0} m (3D: {:.0} m, ΔZ: {:+.0} m), {:.1}° ({:.0} mil)",
-            s.range_m, s.slant_range_m, dz, s.bearing_deg, s.bearing_mils()
-        ),
+        Some(dz) => {
+            if (dial - s.range_m).abs() > 0.5 {
+                format!(
+                    "Sight: {:.0} m (Ground: {:.0} m, ΔZ: {:+.0} m), {:.1}° ({:.0} mil)",
+                    dial, s.range_m, dz, s.bearing_deg, s.bearing_mils()
+                )
+            } else {
+                format!(
+                    "{:.0} m (3D: {:.0} m, ΔZ: {:+.0} m), {:.1}° ({:.0} mil)",
+                    s.range_m, s.slant_range_m, dz, s.bearing_deg, s.bearing_mils()
+                )
+            }
+        }
         None => format!("{:.0} m, {:.1}° ({:.0} mil)", s.range_m, s.bearing_deg, s.bearing_mils()),
     }
 }
@@ -656,7 +686,7 @@ mod tests {
         let target = Coord { x: 76.78, y: 103.61 };
         let sol_bakurani = Solution::between(me, target, 100.0, true, GameMap::Bakurani);
         let copy_bakurani = format_solution_copy(&sol_bakurani);
-        assert!(copy_bakurani.contains("2197 m (3D: 2207 m, ΔZ: +213 m)"));
+        assert!(copy_bakurani.contains("Ground: 2197 m, ΔZ: +213 m"));
         assert!(copy_bakurani.contains("254.5° (4524 mil)"));
 
         let sol_flat = Solution::between(me, target, 100.0, true, GameMap::Flat);
