@@ -1,21 +1,43 @@
-//! Watches the clipboard and reports every newly copied game coordinate.
+//! Watches the clipboard via OS events and reports every newly copied game coordinate.
 
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver};
+use std::sync::Arc;
 use std::thread;
-use std::time::Duration;
+
+use clipboard_rs::{
+    Clipboard, ClipboardContext, ClipboardHandler, ClipboardWatcher,
+    ClipboardWatcherContext,
+};
 
 use crate::coords::{self, Coord};
 
-const POLL_EVERY: Duration = Duration::from_millis(150);
+struct CoordHandler {
+    ctx: ClipboardContext,
+    tx: mpsc::Sender<Coord>,
+    egui_ctx: egui::Context,
+    paused: Arc<AtomicBool>,
+}
 
-/// A background thread polling the clipboard. Text that was already there when it started, or
-/// that is copied while paused, is never reported.
+impl ClipboardHandler for CoordHandler {
+    fn on_clipboard_change(&mut self) {
+        if self.paused.load(Ordering::Relaxed) {
+            return;
+        }
+
+        if let Ok(text) = self.ctx.get_text()
+            && let Some(coord) = coords::parse(&text, false)
+            && self.tx.send(coord).is_ok()
+        {
+            self.egui_ctx.request_repaint();
+        }
+    }
+}
+
 pub struct Watcher {
     pub coords: Receiver<Coord>,
     paused: Arc<AtomicBool>,
-    /// False when the system clipboard can't be opened at all.
+    shutdown: Option<clipboard_rs::WatcherShutdown>,
     pub available: bool,
 }
 
@@ -23,40 +45,48 @@ impl Watcher {
     pub fn start(ctx: egui::Context) -> Self {
         let (tx, rx) = mpsc::channel();
         let paused = Arc::new(AtomicBool::new(false));
-        let available = arboard::Clipboard::new().is_ok();
-        if available {
-            let paused = paused.clone();
-            thread::Builder::new()
-                .name("clipboard-watcher".into())
-                .spawn(move || {
-                    let Ok(mut clipboard) = arboard::Clipboard::new() else { return };
-                    let mut last = clipboard.get_text().ok();
-                    loop {
-                        thread::sleep(POLL_EVERY);
-                        // The clipboard is briefly locked while another app writes to it: try
-                        // again on the next tick.
-                        let Ok(text) = clipboard.get_text() else { continue };
-                        if last.as_deref() == Some(text.as_str()) {
-                            continue;
-                        }
-                        last = Some(text);
-                        if paused.load(Ordering::Relaxed) {
-                            continue;
-                        }
-                        if let Some(coord) = last.as_deref().and_then(|t| coords::parse(t, false)) {
-                            if tx.send(coord).is_err() {
-                                return;
-                            }
-                            ctx.request_repaint();
-                        }
-                    }
-                })
-                .ok();
+
+        let (available, shutdown) = match (ClipboardContext::new(), ClipboardWatcherContext::new()) {
+            (Ok(clip_ctx), Ok(mut watcher)) => {
+                let handler = CoordHandler {
+                    ctx: clip_ctx,
+                    tx,
+                    egui_ctx: ctx,
+                    paused: paused.clone(),
+                };
+
+                let shutdown_handle = watcher.add_handler(handler).get_shutdown_channel();
+
+                // Run watcher on a dedicated OS event thread
+                thread::Builder::new()
+                    .name("clipboard-watcher".into())
+                    .spawn(move || {
+                        watcher.start_watch();
+                    })
+                    .ok();
+
+                (true, Some(shutdown_handle))
+            }
+            _ => (false, None),
+        };
+
+        Self {
+            coords: rx,
+            paused,
+            shutdown,
+            available,
         }
-        Self { coords: rx, paused, available }
     }
 
     pub fn set_paused(&self, paused: bool) {
         self.paused.store(paused, Ordering::Relaxed);
+    }
+}
+
+impl Drop for Watcher {
+    fn drop(&mut self) {
+        if let Some(shutdown) = self.shutdown.take() {
+            shutdown.stop();
+        }
     }
 }
