@@ -85,25 +85,25 @@ Located immediately beneath the custom title bar and above the `CLIPBOARD` routi
 
 ### 3.2 Position Cards (ME and TARGET)
 When valid coordinates are locked and a terrain map is active, the coordinate card footer displays the sampled elevation:
-* **ME:** `E 97.95  ·  N 109.49  ·  ALT 240 m  ·  ✔ LOCKED`
-* **TARGET:** `E 76.78  ·  N 103.61  ·  ALT 927 m  ·  ✔ LOCKED`
+* **ME:** `E 97.95  ·  N 109.49  ·  ALT 147 m  ·  ✔ LOCKED`
+* **TARGET:** `E 76.78  ·  N 103.61  ·  ALT 360 m  ·  ✔ LOCKED`
 *(Omitted if `FLAT` is selected).*
 
 ### 3.3 Solution Card
 * **Primary 2D Range:** Displayed in large font ($56\text{ pt}$) as the authoritative value for dialing artillery/mortar sights.
 * **Secondary 3D Slant & Delta Z:**
   ```text
-  3D SLANT: 2302 m  ·  ΔZ: +687 m (UPHILL)
+  3D SLANT: 2207 m  ·  ΔZ: +213 m (UPHILL)
   ```
-  * Uphill indicated in accent/warning color, downhill in neutral/good color.
+  * Uphill indicated in accent/warning color (`theme::ACCENT`), downhill in good color (`theme::GOOD`), level in neutral (`theme::MUTED`).
 * **COPY Button:** Copies formatted summary including 3D slant range:
-  `2197 m (3D: 2302 m, ΔZ: +687 m), 254.5° (4524 mil)`
+  `2197 m (3D: 2207 m, ΔZ: +213 m), 254.5° (4524 mil)`
 
 ---
 
 ## 4. Pre-Baking Tooling & Data Artifacts
 
-A build-time or offline generation script (`scripts/bake_elevation.py` or Rust utility) constructs the $512 \times 512$ grids from community terrain contours and manifests:
+A build-time or offline generation script (`scripts/generate_elevation_grids.py`) constructs the $512 \times 512$ grids from community terrain contours and manifests:
 * Target outputs: `src/assets/terrain/bakurani.bin`, `ozeti.bin`, `zestafona.bin`.
 * Stored directly in the repository so compilation requires no network access and no Python runtime for normal `cargo build`.
 
@@ -113,7 +113,13 @@ A build-time or offline generation script (`scripts/bake_elevation.py` or Rust u
 
 1. **Exact Reproduction Test Case:**
    * Coordinates: ME `x97.95, y109.49`, TARGET `x76.78, y103.61` on **Bakurani**.
-   * Assertions: 2D Range $= 2,197\text{ m} \pm 1\text{ m}$, $\Delta Z \approx +687\text{ m} \pm 5\text{ m}$, Slant Range $= 2,302\text{ m} \pm 2\text{ m}$.
+   * Ground-Truth Values: Extracted from `contours.json` triangulated raster:
+     - ME Elevation $= 147\text{ m} \pm 2\text{ m}$
+     - TARGET Elevation $= 360\text{ m} \pm 2\text{ m}$
+     - $\Delta Z = +213\text{ m} \pm 2\text{ m}$
+     - 2D Range $= 2,197\text{ m} \pm 1\text{ m}$
+     - 3D Slant Range $= 2,207\text{ m} \pm 2\text{ m}$
+   *(Note: Earlier hypothetical estimates assumed $+687\text{ m}$ $\Delta Z$ prior to obtaining community contour dataset).*
 2. **Flat Mode Test Case:**
    * Same coordinates with `Flat` selected: $\Delta Z = \text{None}$, Slant Range $= 2,197\text{ m}$.
 3. **Bilinear Interpolation & Boundary Tests:**
