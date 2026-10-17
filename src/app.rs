@@ -104,7 +104,7 @@ impl App {
         coords::parse(text, true)
     }
 
-    /// The field the next copied coordinate will go into (into ME while empty, then TARGET).
+    /// The field the next copied coordinate will go into.
     fn next_slot(&self) -> Slot {
         if self.s.me.trim().is_empty() {
             Slot::Me
@@ -248,7 +248,6 @@ impl App {
             .as_deref()
             .and_then(|cur| self.s.saved_targets.iter().position(|t| t.coords == cur));
 
-        // Row 1: Saved targets dropdown + delete button for the selected saved target.
         ui.horizontal(|ui| {
             caption(ui, "SAVED");
             let selected_label = match active_idx {
@@ -287,7 +286,6 @@ impl App {
             }
         });
 
-        // Row 2: Name input + SAVE button to save the current target coordinate.
         ui.horizontal(|ui| {
             let can_save = current_coord.is_some() && !self.target_name.trim().is_empty();
             let save_w = 72.0;
@@ -442,7 +440,6 @@ impl eframe::App for App {
             let level = if self.s.on_top { egui::WindowLevel::AlwaysOnTop } else { egui::WindowLevel::Normal };
             ctx.send_viewport_cmd(egui::ViewportCommand::WindowLevel(level));
             self.applied_on_top = Some(self.s.on_top);
-            // Ensure any previously persisted smaller window size is reset to the fixed height.
             ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(vec2(WINDOW_W, WINDOW_H)));
         }
     }
