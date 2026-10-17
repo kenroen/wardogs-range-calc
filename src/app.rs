@@ -320,7 +320,7 @@ impl App {
     }
 
     fn solution(&mut self, ui: &mut Ui) {
-        let solution = self.coord(Slot::Me).zip(self.coord(Slot::Target)).map(|(me, target)| Solution::between(me, target, self.s.metres_per_unit, self.s.y_north));
+        let solution = self.coord(Slot::Me).zip(self.coord(Slot::Target)).map(|(me, target)| Solution::between(me, target, self.s.metres_per_unit, self.s.y_north, crate::elevation::GameMap::Flat));
         egui::Frame::new().fill(theme::FIELD).stroke(Stroke::new(1.0, theme::LINE_STRONG)).inner_margin(Margin::same(14)).show(ui, |ui| {
             ui.set_width(ui.available_width());
             let Some(s) = solution else {
