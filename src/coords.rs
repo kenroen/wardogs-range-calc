@@ -164,10 +164,7 @@ impl Solution {
         let bearing_deg = if range_m == 0.0 { 0.0 } else { east_m.atan2(north_m).to_degrees().rem_euclid(360.0) };
         let me_alt_m = crate::elevation::elevation_at(map, me);
         let target_alt_m = crate::elevation::elevation_at(map, target);
-        let delta_z_m = match (me_alt_m, target_alt_m) {
-            (Some(m), Some(t)) => Some(t - m),
-            _ => None,
-        };
+        let delta_z_m = crate::elevation::delta_z(map, me, target);
         let slant_range_m = match delta_z_m {
             Some(dz) => range_m.hypot(dz),
             None => range_m,
