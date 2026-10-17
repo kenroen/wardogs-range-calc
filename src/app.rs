@@ -655,12 +655,14 @@ mod tests {
 
             // Load sample game shot for rendering.
             app.s = Saved::default();
+            app.s.map = crate::elevation::GameMap::Bakurani;
             app.s.saved_targets.push(SavedTarget {
-                name: "North Bunker".to_owned(),
-                coords: "x98.10, y101.55".to_owned(),
+                name: "High Outpost".to_owned(),
+                coords: "x75.28, y102.90".to_owned(),
             });
-            app.receive(coord(95.62, 104.98), 0.0);
-            app.receive(coord(98.10, 101.55), 0.0);
+            app.target_name = "High Outpost".to_owned();
+            app.receive(coord(97.83, 109.32), 0.0);
+            app.receive(coord(75.28, 102.90), 0.0);
             app.flashed_at = [None; 2];
         }
         harness.run_steps(4);
