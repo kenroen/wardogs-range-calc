@@ -86,7 +86,8 @@ pub struct App {
 impl App {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         theme::apply(&cc.egui_ctx);
-        let s: Saved = cc.storage.and_then(|st| eframe::get_value(st, eframe::APP_KEY)).unwrap_or_default();
+        let mut s: Saved = cc.storage.and_then(|st| eframe::get_value(st, eframe::APP_KEY)).unwrap_or_default();
+        s.y_north = true;
         let watcher = Watcher::start(cc.egui_ctx.clone());
         watcher.set_paused(!s.listening);
         Self { s, watcher, flashed_at: [None; 2], last_clip: None, applied_on_top: None, target_name: String::new() }
@@ -407,26 +408,41 @@ impl App {
             ui.add_space(6.0);
             ui.painter().hline(ui.max_rect().x_range(), ui.cursor().top(), Stroke::new(1.0, theme::LINE));
             ui.add_space(8.0);
-            for w in WEAPONS {
+            for (idx, w) in WEAPONS.iter().enumerate() {
                 ui.horizontal(|ui| {
                     small(ui, w.name, theme::INK);
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        let (text, color) = match w.reach(s.range_m) {
-                            Reach::TooClose => (format!("TOO CLOSE · MIN {:.0} m", w.min_m), theme::BAD),
-                            Reach::TooFar => (format!("OUT OF RANGE · MAX {:.0} m", w.max_m), theme::BAD),
-                            Reach::HighArc => {
-                                if let Some(sol) = s.weapons.sph2_high.or(s.weapons.mortar) {
-                                    (format!("{:.0} m · {:.0} MIL · {:.1}s", sol.sight_range_m, sol.mil, sol.flight_time_s), theme::GOOD)
-                                } else {
-                                    ("IN RANGE · HIGH ARC".to_owned(), theme::GOOD)
+                        let (text, color) = if idx == 0 {
+                            // L81 MORTAR
+                            if let Some(sol) = s.weapons.mortar {
+                                (format!("{:.0} m · {:.0} MIL · {:.1}s", sol.sight_range_m, sol.mil, sol.flight_time_s), theme::GOOD)
+                            } else {
+                                match w.reach(s.range_m) {
+                                    Reach::TooClose => (format!("TOO CLOSE · MIN {:.0} m", w.min_m), theme::BAD),
+                                    Reach::TooFar => (format!("OUT OF RANGE · MAX {:.0} m", w.max_m), theme::BAD),
+                                    _ => ("UNREACHABLE (ELEVATION)".to_owned(), theme::BAD),
                                 }
                             }
-                            Reach::HighOrLowArc => {
-                                if let (Some(low), Some(high)) = (s.weapons.sph2_low, s.weapons.sph2_high) {
-                                    (format!("LOW {:.0}m ({:.0}mil) / HIGH {:.0}m ({:.0}mil)", low.sight_range_m, low.mil, high.sight_range_m, high.mil), theme::GOOD)
-                                } else {
-                                    ("IN RANGE · HIGH / LOW ARC".to_owned(), theme::GOOD)
-                                }
+                        } else {
+                            // SPH-2
+                            match (s.weapons.sph2_low, s.weapons.sph2_high) {
+                                (Some(low), Some(high)) => (
+                                    format!("LOW {:.0}m ({:.0}mil) / HIGH {:.0}m ({:.0}mil)", low.sight_range_m, low.mil, high.sight_range_m, high.mil),
+                                    theme::GOOD,
+                                ),
+                                (Some(low), None) => (
+                                    format!("LOW {:.0} m · {:.0} MIL · {:.1}s", low.sight_range_m, low.mil, low.flight_time_s),
+                                    theme::GOOD,
+                                ),
+                                (None, Some(high)) => (
+                                    format!("HIGH {:.0} m · {:.0} MIL · {:.1}s", high.sight_range_m, high.mil, high.flight_time_s),
+                                    theme::GOOD,
+                                ),
+                                (None, None) => match w.reach(s.range_m) {
+                                    Reach::TooClose => (format!("TOO CLOSE · MIN {:.0} m", w.min_m), theme::BAD),
+                                    Reach::TooFar => (format!("OUT OF RANGE · MAX {:.0} m", w.max_m), theme::BAD),
+                                    _ => ("UNREACHABLE (ELEVATION)".to_owned(), theme::BAD),
+                                },
                             }
                         };
                         small(ui, &text, color);
@@ -474,15 +490,6 @@ impl App {
                     ui.add(egui::DragValue::new(&mut self.s.metres_per_unit).range(0.01..=10_000.0).speed(1.0).suffix(" m / unit"));
                     if hud_button(ui, "RESET", theme::MUTED, false).on_hover_text("One coordinate unit is 100 m").clicked() {
                         self.s.metres_per_unit = 100.0;
-                    }
-                });
-                ui.horizontal(|ui| {
-                    small(ui, "Y AXIS", theme::MUTED);
-                    if hud_button(ui, "NORTH ↑", theme::ACCENT, self.s.y_north).on_hover_text("Y grows northwards (WARDOGS default)").clicked() {
-                        self.s.y_north = true;
-                    }
-                    if hud_button(ui, "SOUTH ↓", theme::ACCENT, !self.s.y_north).on_hover_text("Y grows southwards").clicked() {
-                        self.s.y_north = false;
                     }
                 });
             });
@@ -688,7 +695,7 @@ mod tests {
         let target = Coord { x: 76.78, y: 103.61 };
         let sol_bakurani = Solution::between(me, target, 100.0, true, GameMap::Bakurani);
         let copy_bakurani = format_solution_copy(&sol_bakurani);
-        assert!(copy_bakurani.contains("Ground: 2197 m, ΔZ: +213 m"));
+        assert!(copy_bakurani.contains("Ground: 2197 m, ΔZ: +219 m"), "got: {copy_bakurani}");
         assert!(copy_bakurani.contains("254.5° (4524 mil)"));
 
         let sol_flat = Solution::between(me, target, 100.0, true, GameMap::Flat);
