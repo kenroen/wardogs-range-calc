@@ -223,10 +223,8 @@ pub fn solve_firing_solutions(spec: &WeaponSpec, distance_m: f64, delta_z_m: f64
     let mut prev_traj = &family[0];
     let mut prev_pt = prev_traj.sample_at_x(distance_m);
 
-    if let Some(ref pt) = prev_pt {
-        if (pt.z - delta_z_m).abs() < 1e-7 {
-            add_candidate(prev_traj, pt, TrajectoryArc::Low);
-        }
+    if let Some(pt) = prev_pt.filter(|p| (p.z - delta_z_m).abs() < 1e-7) {
+        add_candidate(prev_traj, &pt, TrajectoryArc::Low);
     }
 
     for curr_traj in &family[1..] {
@@ -242,7 +240,7 @@ pub fn solve_firing_solutions(spec: &WeaponSpec, distance_m: f64, delta_z_m: f64
             let mut l = prev_traj.degrees;
             let mut u = curr_traj.degrees;
             let mut best_traj = if was_above { prev_traj.clone() } else { curr_traj.clone() };
-            let mut best_pt = if was_above { prev_pt.clone().unwrap() } else { curr_pt.clone().unwrap() };
+            let mut best_pt = if was_above { prev_pt.unwrap() } else { curr_pt.unwrap() };
 
             for _ in 0..14 {
                 if (best_pt.z - delta_z_m).abs() <= 0.02 {
@@ -264,10 +262,8 @@ pub fn solve_firing_solutions(spec: &WeaponSpec, distance_m: f64, delta_z_m: f64
             }
 
             add_candidate(&best_traj, &best_pt, if was_above { TrajectoryArc::High } else { TrajectoryArc::Low });
-        } else if let Some(ref c) = curr_pt {
-            if (c.z - delta_z_m).abs() < 1e-7 {
-                add_candidate(curr_traj, c, TrajectoryArc::High);
-            }
+        } else if let Some(c) = curr_pt.filter(|c| (c.z - delta_z_m).abs() < 1e-7) {
+            add_candidate(curr_traj, &c, TrajectoryArc::High);
         }
 
         prev_traj = curr_traj;
