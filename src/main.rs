@@ -2,9 +2,11 @@
 #![cfg_attr(windows, windows_subsystem = "windows")]
 
 mod app;
+mod ballistics;
 mod chrome;
 mod clipboard;
 mod coords;
+mod elevation;
 mod theme;
 
 fn main() -> eframe::Result {
