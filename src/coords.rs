@@ -347,4 +347,15 @@ mod tests {
         assert!((sol_flat.range_m - 2345.0).abs() < 1.0);
         assert!((sol_flat.dial_range_m() - 2345.0).abs() < 1.0);
     }
+
+    #[test]
+    fn test_shooting_range_solution() {
+        let me = c(97.24, 109.54);
+        let target = c(81.55, 105.17);
+        let sol = Solution::between(me, target, 100.0, true, crate::elevation::GameMap::Bakurani);
+        assert!((sol.bearing_deg - 254.44).abs() < 0.05, "bearing_deg={}", sol.bearing_deg);
+        assert!((sol.bearing_mils() - 4523.4).abs() < 1.0, "bearing_mils={}", sol.bearing_mils());
+        assert!((sol.range_m - 1628.69).abs() < 0.1, "range_m={}", sol.range_m);
+        assert!((sol.dial_range_m() - 2275.0).abs() < 2.0, "dial_range_m={}", sol.dial_range_m());
+    }
 }

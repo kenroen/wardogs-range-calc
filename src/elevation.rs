@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use crate::coords::Coord;
 
 pub const GRID_SIZE: usize = 512;
-pub const MAX_COORD: f64 = 163.2;
+pub const MAX_COORD: f64 = 163.84;
 
 const BAKURANI_BYTES: &[u8] = include_bytes!("assets/terrain/bakurani.bin");
 const OZETI_BYTES: &[u8] = include_bytes!("assets/terrain/ozeti.bin");
@@ -101,8 +101,20 @@ mod tests {
         let target_alt = elevation_at(GameMap::Bakurani, target).expect("should have elevation");
         let dz = delta_z(GameMap::Bakurani, me, target).expect("should have elevation");
         assert!((me_alt - 147.0).abs() < 5.0, "expected ~147m, got {}", me_alt);
-        assert!((target_alt - 360.0).abs() < 10.0, "expected ~360m, got {}", target_alt);
-        assert!((dz - 213.0).abs() < 10.0, "expected ~213m, got {}", dz);
+        assert!((target_alt - 364.0).abs() < 5.0, "expected ~364m, got {}", target_alt);
+        assert!((dz - 217.0).abs() < 5.0, "expected ~217m, got {}", dz);
+    }
+
+    #[test]
+    fn test_bakurani_shooting_range_case() {
+        let me = Coord { x: 97.24, y: 109.54 };
+        let target = Coord { x: 81.55, y: 105.17 };
+        let me_alt = elevation_at(GameMap::Bakurani, me).expect("should have elevation");
+        let target_alt = elevation_at(GameMap::Bakurani, target).expect("should have elevation");
+        let dz = delta_z(GameMap::Bakurani, me, target).expect("should have elevation");
+        assert!((me_alt - 146.0).abs() < 2.0, "expected ~146m, got {}", me_alt);
+        assert!((target_alt - 408.2).abs() < 2.0, "expected ~408.2m, got {}", target_alt);
+        assert!((dz - 262.2).abs() < 2.0, "expected ~262.2m, got {}", dz);
     }
 
     #[test]
