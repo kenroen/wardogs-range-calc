@@ -43,22 +43,12 @@ impl Slot {
     }
 }
 
-/// Where copied coordinates go.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub enum Route {
-    /// Into ME while it is empty, otherwise into TARGET.
-    Auto,
-    Me,
-    Target,
-}
-
 /// What survives a restart.
 #[derive(Serialize, Deserialize)]
 #[serde(default)]
 struct Saved {
     me: String,
     target: String,
-    route: Route,
     listening: bool,
     metres_per_unit: f64,
     y_north: bool,
@@ -71,7 +61,6 @@ impl Default for Saved {
         Self {
             me: String::new(),
             target: String::new(),
-            route: Route::Auto,
             listening: true,
             metres_per_unit: 100.0,
             y_north: true,
@@ -117,11 +106,10 @@ impl App {
 
     /// The field the next copied coordinate will go into.
     fn next_slot(&self) -> Slot {
-        match self.s.route {
-            Route::Me => Slot::Me,
-            Route::Target => Slot::Target,
-            Route::Auto if self.s.me.trim().is_empty() => Slot::Me,
-            Route::Auto => Slot::Target,
+        if self.s.me.trim().is_empty() {
+            Slot::Me
+        } else {
+            Slot::Target
         }
     }
 
@@ -164,38 +152,32 @@ impl App {
     }
 
     fn routing(&mut self, ui: &mut Ui) {
-        ui.horizontal(|ui| {
-            caption(ui, "CLIPBOARD →");
-            for (route, label, color) in [
-                (Route::Auto, "AUTO", theme::ACCENT),
-                (Route::Me, "ME", theme::ME),
-                (Route::Target, "TARGET", theme::TARGET),
-            ] {
-                let tip = match route {
-                    Route::Auto => "Copied coordinates fill ME while it is empty, then TARGET",
-                    Route::Me => "Copied coordinates always go into ME",
-                    Route::Target => "Copied coordinates always go into TARGET",
-                };
-                if hud_button(ui, label, color, self.s.route == route).on_hover_text(tip).clicked() {
-                    self.s.route = route;
-                }
-            }
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                let on = self.s.listening && self.watcher.available;
-                let label = if on { "● LISTENING" } else { "○ PAUSED" };
-                let color = if on { theme::GOOD } else { theme::MUTED };
-                let tip = if !self.watcher.available {
-                    "The clipboard can't be read on this system"
-                } else if on {
-                    "Click to stop watching the clipboard"
-                } else {
-                    "Click to watch the clipboard for coordinates"
-                };
-                if hud_button(ui, label, color, false).on_hover_text(tip).clicked() && self.watcher.available {
-                    self.set_listening(!self.s.listening);
-                }
-            });
-        });
+        ui.allocate_ui_with_layout(
+            vec2(ui.available_width(), 28.0),
+            Layout::left_to_right(Align::Center),
+            |ui| {
+                ui.label(
+                    RichText::new("CLIPBOARD")
+                        .font(FontId::new(16.0, FontFamily::Monospace))
+                        .color(theme::MUTED),
+                );
+                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    let on = self.s.listening && self.watcher.available;
+                    let label = if on { "● LISTENING" } else { "○ PAUSED" };
+                    let color = if on { theme::GOOD } else { theme::MUTED };
+                    let tip = if !self.watcher.available {
+                        "The clipboard can't be read on this system"
+                    } else if on {
+                        "Click to stop watching the clipboard"
+                    } else {
+                        "Click to watch the clipboard for coordinates"
+                    };
+                    if hud_button(ui, label, color, false).on_hover_text(tip).clicked() && self.watcher.available {
+                        self.set_listening(!self.s.listening);
+                    }
+                });
+            },
+        );
     }
 
     fn coord_card(&mut self, ui: &mut Ui, slot: Slot, title: &str) {
@@ -224,13 +206,6 @@ impl App {
                             self.target_name.clear();
                         }
                         self.flashed_at[slot as usize] = None;
-                    }
-                    if slot == Slot::Me
-                        && hud_button(ui, "PIN", theme::ACCENT, self.s.on_top)
-                            .on_hover_text("Keep window on top of other windows")
-                            .clicked()
-                    {
-                        self.s.on_top = !self.s.on_top;
                     }
                     if receiving {
                         ui.label(RichText::new("◀ NEXT PASTE").font(FontId::new(13.0, FontFamily::Monospace)).color(theme::ACCENT));
@@ -273,7 +248,6 @@ impl App {
             .as_deref()
             .and_then(|cur| self.s.saved_targets.iter().position(|t| t.coords == cur));
 
-        // Row 1: Saved targets dropdown + delete button for the selected saved target.
         ui.horizontal(|ui| {
             caption(ui, "SAVED");
             let selected_label = match active_idx {
@@ -312,7 +286,6 @@ impl App {
             }
         });
 
-        // Row 2: Name input + SAVE button to save the current target coordinate.
         ui.horizontal(|ui| {
             let can_save = current_coord.is_some() && !self.target_name.trim().is_empty();
             let save_w = 72.0;
@@ -455,28 +428,6 @@ impl App {
                 });
             });
     }
-    fn footer(&self, ui: &mut Ui) {
-        const REPO_URL: &str = "https://github.com/kenroen/wardogs-range-calc";
-        ui.horizontal_centered(|ui| {
-            let resp = ui
-                .add(
-                    egui::Label::new(
-                        RichText::new("https://github.com/kenroen/wardogs-range-calc ↗")
-                            .font(FontId::new(13.0, FontFamily::Monospace))
-                            .color(theme::MUTED),
-                    )
-                    .sense(Sense::click()),
-                )
-                .on_hover_text("Open GitHub repository")
-                .on_hover_cursor(egui::CursorIcon::PointingHand);
-            if resp.hovered() {
-                ui.painter().hline(resp.rect.x_range(), resp.rect.bottom(), Stroke::new(1.0, theme::ACCENT));
-            }
-            if resp.clicked() {
-                ui.ctx().open_url(egui::OpenUrl::new_tab(REPO_URL));
-            }
-        });
-    }
 }
 
 impl eframe::App for App {
@@ -489,7 +440,6 @@ impl eframe::App for App {
             let level = if self.s.on_top { egui::WindowLevel::AlwaysOnTop } else { egui::WindowLevel::Normal };
             ctx.send_viewport_cmd(egui::ViewportCommand::WindowLevel(level));
             self.applied_on_top = Some(self.s.on_top);
-            // Ensure any previously persisted smaller window size is reset to the fixed height.
             ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(vec2(WINDOW_W, WINDOW_H)));
         }
     }
@@ -503,12 +453,6 @@ impl eframe::App for App {
             .resizable(false)
             .show_separator_line(false)
             .show(ui, |ui| self.title_bar(ui));
-        egui::Panel::bottom("footer")
-            .frame(egui::Frame::new().fill(theme::BG).inner_margin(Margin { left: inset + 10, right: inset + 10, top: 4, bottom: inset + 6 }))
-            .exact_size(32.0)
-            .resizable(false)
-            .show_separator_line(false)
-            .show(ui, |ui| self.footer(ui));
         egui::CentralPanel::default()
             .frame(egui::Frame::new().fill(theme::BG).inner_margin(Margin { left: inset + 10, right: inset + 10, top: 6, bottom: 4 }))
             .show(ui, |ui| {
@@ -627,9 +571,6 @@ mod tests {
             app.receive(coord(5.0, 6.0), 0.0);
             assert_eq!(app.s.me, "x1.00, y2.00");
             assert_eq!(app.s.target, "x5.00, y6.00");
-            app.s.route = Route::Me;
-            app.receive(coord(7.0, 8.0), 0.0);
-            assert_eq!(app.s.me, "x7.00, y8.00");
 
             // Load sample game shot for rendering.
             app.s = Saved::default();

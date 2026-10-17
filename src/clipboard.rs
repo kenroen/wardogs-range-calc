@@ -57,7 +57,6 @@ impl Watcher {
 
                 let shutdown_handle = watcher.add_handler(handler).get_shutdown_channel();
 
-                // Run watcher on a dedicated OS event thread
                 thread::Builder::new()
                     .name("clipboard-watcher".into())
                     .spawn(move || {
