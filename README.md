@@ -4,6 +4,10 @@ A lightweight desktop range, bearing, and 3D ballistic slant calculator for **WA
 
 It watches your system clipboard for in-game coordinates (such as `x95.62, y104.98`) and automatically populates your gun position (**ME**) and impact point (**TARGET**), computing the firing solution immediately with offline terrain elevation context.
 
+<p align="center">
+  <img src="assets/screenshot.png" alt="WARDOGS Artillery Range Calculator Screenshot" width="480" />
+</p>
+
 ---
 
 ## Features
