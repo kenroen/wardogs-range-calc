@@ -5,6 +5,7 @@ mod app;
 mod chrome;
 mod clipboard;
 mod coords;
+mod elevation;
 mod theme;
 
 fn main() -> eframe::Result {
