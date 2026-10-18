@@ -10,9 +10,8 @@ env:
 
 jobs:
   validate:
-    name: Build & Test (Windows)
+    name: Validate & Test (Windows)
     runs-on: windows-latest
-    if: github.head_ref == 'develop' || github.event_name == 'workflow_dispatch'
 
     steps:
       - name: Checkout repository
@@ -30,14 +29,4 @@ jobs:
         run: cargo clippy --all-targets -- -D warnings
 
       - name: Run tests
-        run: cargo test --verbose
-
-      - name: Build release binary
-        run: cargo build --release
-
-      - name: Upload build artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: wardogs-range-calc-windows
-          path: target/release/wardogs-range-calc.exe
-          if-no-files-found: error
+        run: cargo test --locked --verbose

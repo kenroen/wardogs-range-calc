@@ -49,3 +49,13 @@
 - **Symptom / Mistake**: Running `git commit -m "... (`u * 2048 - 0.5`) ..."` in double quotes fails in `pwsh` with `The Unicode escape sequence is not valid. A valid sequence is `u{...}`.
 - **Root Cause**: PowerShell (`pwsh`) uses the backtick `` ` `` as its escape character inside double-quoted strings (`"..."`), so `` `u `` is parsed as a Unicode escape sequence.
 - **Rule / Fix**: Always wrap `git commit -m '...'` and `gh pr create --title '...' --body '...'` arguments in **single quotes** (`'...'`) in PowerShell so backticks and `$` are treated literally.
+
+### GitHub Ruleset Required Status Checks & CI Validation Workflow
+- **Symptom / Mistake**: PRs targeting `main` could be merged while `CI Validation` was still running or failing, and the workflow unnecessarily built a release binary and uploaded an artifact.
+- **Root Cause**: The `Protect main branch` repository ruleset (`25298684`) had `required_status_checks` enabled with an empty `required_status_checks: []` array, and `.github/workflows/validate.yml` had an unnecessary `if: github.head_ref == 'develop'` guard plus release build/artifact upload steps.
+- **Rule / Fix**: Keep `.github/workflows/validate.yml` focused strictly on validation (`cargo clippy --all-targets -- -D warnings` and `cargo test --locked --verbose`) with job name `Validate & Test (Windows)` on `pull_request` to `main`, and ensure the `Protect main branch` ruleset explicitly lists `{"context": "Validate & Test (Windows)", "integration_id": 15368}` under `required_status_checks`.
+
+### Always Ask Before Creating a Pull Request
+- **Symptom / Mistake**: Automatically running `gh pr create` right after committing/pushing changes without asking the user first.
+- **Root Cause**: Assuming PR creation should happen immediately at the end of a task.
+- **Rule / Fix**: Always switch to a new branch before making any changes, and **always ask the user for confirmation before creating a Pull Request (`gh pr create`)**.
