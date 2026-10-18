@@ -11,7 +11,7 @@ use crate::theme;
 
 /// Fixed window dimensions.
 pub const WINDOW_W: f32 = 560.0;
-pub const WINDOW_H: f32 = 880.0;
+pub const WINDOW_H: f32 = 900.0;
 
 /// How long a field glows after the clipboard fills it, in seconds.
 const FLASH_SECS: f64 = 0.9;
@@ -86,7 +86,8 @@ pub struct App {
 impl App {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         theme::apply(&cc.egui_ctx);
-        let s: Saved = cc.storage.and_then(|st| eframe::get_value(st, eframe::APP_KEY)).unwrap_or_default();
+        let mut s: Saved = cc.storage.and_then(|st| eframe::get_value(st, eframe::APP_KEY)).unwrap_or_default();
+        s.y_north = true;
         let watcher = Watcher::start(cc.egui_ctx.clone());
         watcher.set_paused(!s.listening);
         Self { s, watcher, flashed_at: [None; 2], last_clip: None, applied_on_top: None, target_name: String::new() }
@@ -244,7 +245,7 @@ impl App {
                     small(ui, &format!("E {:.2}", c.x), theme::INK);
                     small(ui, &format!("N {:.2}", c.y), theme::INK);
                     if let Some(alt) = elevation::elevation_at(self.s.map, c) {
-                        small(ui, &format!("ALT {:.0} m", alt), theme::INK);
+                        small(ui, &format!("ASL {} m", elevation::js_round(alt)), theme::INK);
                     }
                     small(ui, "✔ LOCKED", theme::GOOD);
                 }
@@ -358,15 +359,15 @@ impl App {
                 return;
             };
             ui.horizontal(|ui| {
-                caption(ui, if s.delta_z_m.is_some() { "DIAL RANGE (SIGHT)" } else { "RANGE" });
+                caption(ui, "DIST (GROUND)");
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    if hud_button(ui, "COPY", theme::MUTED, false).on_hover_text("Copy the range and bearing").clicked() {
+                    if hud_button(ui, "COPY", theme::MUTED, false).on_hover_text("Copy the firing solution").clicked() {
                         ui.ctx().copy_text(format_solution_copy(&s));
                     }
                 });
             });
             ui.horizontal(|ui| {
-                ui.label(RichText::new(format!("{:.0}", s.dial_range_m())).font(FontId::new(56.0, FontFamily::Monospace)).color(theme::ACCENT).strong());
+                ui.label(RichText::new(format!("{:.0}", s.range_m)).font(FontId::new(56.0, FontFamily::Monospace)).color(theme::ACCENT).strong());
                 ui.label(RichText::new("m").font(FontId::new(26.0, FontFamily::Monospace)).color(theme::MUTED));
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                     let (rect, _) = ui.allocate_exact_size(vec2(54.0, 54.0), Sense::hover());
@@ -377,13 +378,13 @@ impl App {
                     });
                 });
             });
-            if let Some(dz) = s.delta_z_m {
+            if let (Some(gun_asl), Some(tgt_asl), Some(dz)) = (s.me_alt_m, s.target_alt_m, s.delta_z_m) {
                 ui.horizontal(|ui| {
-                    small(ui, &format!("GROUND: {:.0} m", s.range_m), theme::INK);
+                    small(ui, &format!("GUN ASL {} m", elevation::js_round(gun_asl)), theme::INK);
                     small(ui, "·", theme::MUTED);
-                    small(ui, &format!("3D: {:.0} m", s.slant_range_m), theme::MUTED);
+                    small(ui, &format!("TGT ASL {} m", elevation::js_round(tgt_asl)), theme::INK);
                     small(ui, "·", theme::MUTED);
-                    small(ui, &format!("ΔZ: {:+.0} m", dz), theme::INK);
+                    small(ui, &format!("RISE {:+} m", elevation::js_round(dz)), theme::INK);
                     let (badge_text, badge_color) = if dz > 0.5 {
                         ("(UPHILL)", theme::ACCENT)
                     } else if dz < -0.5 {
@@ -395,43 +396,127 @@ impl App {
                 });
             } else {
                 ui.horizontal(|ui| {
-                    small(ui, &format!("GROUND: {:.0} m", s.range_m), theme::INK);
+                    small(ui, &format!("DIST: {:.0} m", s.range_m), theme::INK);
                     small(ui, "·", theme::MUTED);
                     small(ui, "(FLAT / NO TERRAIN)", theme::MUTED);
                 });
             }
             ui.horizontal(|ui| {
+                small(ui, &format!("3D {:.0} m", s.slant_range_m), theme::MUTED);
+                small(ui, "·", theme::MUTED);
                 small(ui, &format!("ΔE {:+.0} m", s.east_m), theme::MUTED);
                 small(ui, &format!("ΔN {:+.0} m", s.north_m), theme::MUTED);
             });
             ui.add_space(6.0);
             ui.painter().hline(ui.max_rect().x_range(), ui.cursor().top(), Stroke::new(1.0, theme::LINE));
             ui.add_space(8.0);
-            for w in WEAPONS {
-                ui.horizontal(|ui| {
-                    small(ui, w.name, theme::INK);
-                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        let (text, color) = match w.reach(s.range_m) {
-                            Reach::TooClose => (format!("TOO CLOSE · MIN {:.0} m", w.min_m), theme::BAD),
-                            Reach::TooFar => (format!("OUT OF RANGE · MAX {:.0} m", w.max_m), theme::BAD),
-                            Reach::HighArc => {
-                                if let Some(sol) = s.weapons.sph2_high.or(s.weapons.mortar) {
-                                    (format!("{:.0} m · {:.0} MIL · {:.1}s", sol.sight_range_m, sol.mil, sol.flight_time_s), theme::GOOD)
-                                } else {
-                                    ("IN RANGE · HIGH ARC".to_owned(), theme::GOOD)
-                                }
+
+            // L81 MORTAR row
+            let l81 = &WEAPONS[0];
+            ui.horizontal(|ui| {
+                small(ui, l81.name, theme::INK);
+                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    let (text, color) = if let Some(sol) = s.weapons.mortar {
+                        if let Some(impact_m) = sol.blocked_at_m {
+                            (
+                                format!("HIGH {:.1} mil  {:.1}s · MASKED ({:.0} m)", sol.mil, sol.flight_time_s, impact_m),
+                                theme::BAD,
+                            )
+                        } else {
+                            (
+                                format!("HIGH {:.1} mil  {:.1}s · ESTIMATE", sol.mil, sol.flight_time_s),
+                                theme::GOOD,
+                            )
+                        }
+                    } else {
+                        let (min_b, max_b) = s.weapons.mortar_band_m;
+                        if min_b > 0.0 && s.range_m < min_b {
+                            (format!("TOO CLOSE · MIN {:.0} m", min_b), theme::BAD)
+                        } else if max_b > 0.0 && s.range_m > max_b {
+                            (format!("BEYOND RANGE · MAX {:.0} m", max_b), theme::BAD)
+                        } else {
+                            match l81.reach(s.range_m) {
+                                Reach::TooClose => (format!("TOO CLOSE · MIN {:.0} m", l81.min_m), theme::BAD),
+                                _ => (format!("BEYOND RANGE · MAX {:.0} m", l81.max_m), theme::BAD),
                             }
-                            Reach::HighOrLowArc => {
-                                if let (Some(low), Some(high)) = (s.weapons.sph2_low, s.weapons.sph2_high) {
-                                    (format!("LOW {:.0}m ({:.0}mil) / HIGH {:.0}m ({:.0}mil)", low.sight_range_m, low.mil, high.sight_range_m, high.mil), theme::GOOD)
-                                } else {
-                                    ("IN RANGE · HIGH / LOW ARC".to_owned(), theme::GOOD)
-                                }
-                            }
-                        };
-                        small(ui, &text, color);
-                    });
+                        }
+                    };
+                    small(ui, &text, color);
                 });
+            });
+
+            ui.add_space(4.0);
+
+            // SPH-2 rows
+            let sph2 = &WEAPONS[1];
+            match (s.weapons.sph2_high, s.weapons.sph2_low) {
+                (None, None) => {
+                    ui.horizontal(|ui| {
+                        small(ui, sph2.name, theme::INK);
+                        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                            let (min_b, max_b) = s.weapons.sph2_band_m;
+                            let text = if min_b > 0.0 && s.range_m < min_b {
+                                format!("TOO CLOSE · MIN {:.0} m", min_b)
+                            } else if max_b > 0.0 && s.range_m > max_b {
+                                format!("BEYOND RANGE · MAX {:.0} m", max_b)
+                            } else {
+                                match sph2.reach(s.range_m) {
+                                    Reach::TooClose => format!("TOO CLOSE · MIN {:.0} m", sph2.min_m),
+                                    _ => format!("BEYOND RANGE · MAX {:.0} m", sph2.max_m),
+                                }
+                            };
+                            small(ui, &text, theme::BAD);
+                        });
+                    });
+                }
+                (high_opt, low_opt) => {
+                    if let Some(high) = high_opt {
+                        ui.horizontal(|ui| {
+                            small(ui, "SPH-2 HIGH", theme::INK);
+                            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                                let hud_str = high.hud_range_m.map_or_else(
+                                    || format!("RNG {:.0}m", high.sight_range_m),
+                                    |h| format!("HUD RNG {:.0}m", h),
+                                );
+                                let (text, color) = if high.blocked_at_m.is_some() {
+                                    (
+                                        format!("{:.1} mil · {:.1}s · {} · BLOCKED", high.mil, high.flight_time_s, hud_str),
+                                        theme::BAD,
+                                    )
+                                } else {
+                                    (
+                                        format!("{:.1} mil · {:.1}s · {}", high.mil, high.flight_time_s, hud_str),
+                                        theme::GOOD,
+                                    )
+                                };
+                                small(ui, &text, color);
+                            });
+                        });
+                    }
+                    if let Some(low) = low_opt {
+                        ui.horizontal(|ui| {
+                            small(ui, "SPH-2 LOW", theme::INK);
+                            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                                let hud_str = low.hud_range_m.map_or_else(
+                                    || format!("RNG {:.0}m", low.sight_range_m),
+                                    |h| format!("HUD RNG {:.0}m", h),
+                                );
+                                let (text, color) = if low.blocked_at_m.is_some() {
+                                    (
+                                        format!("{:.1} mil · {:.1}s · {} · BLOCKED", low.mil, low.flight_time_s, hud_str),
+                                        theme::BAD,
+                                    )
+                                } else {
+                                    (
+                                        format!("{:.1} mil · {:.1}s · {}", low.mil, low.flight_time_s, hud_str),
+                                        theme::GOOD,
+                                    )
+                                };
+                                small(ui, &text, color);
+                            });
+                        });
+                    }
+                }
             }
         });
     }
@@ -474,15 +559,6 @@ impl App {
                     ui.add(egui::DragValue::new(&mut self.s.metres_per_unit).range(0.01..=10_000.0).speed(1.0).suffix(" m / unit"));
                     if hud_button(ui, "RESET", theme::MUTED, false).on_hover_text("One coordinate unit is 100 m").clicked() {
                         self.s.metres_per_unit = 100.0;
-                    }
-                });
-                ui.horizontal(|ui| {
-                    small(ui, "Y AXIS", theme::MUTED);
-                    if hud_button(ui, "NORTH ↑", theme::ACCENT, self.s.y_north).on_hover_text("Y grows northwards (WARDOGS default)").clicked() {
-                        self.s.y_north = true;
-                    }
-                    if hud_button(ui, "SOUTH ↓", theme::ACCENT, !self.s.y_north).on_hover_text("Y grows southwards").clicked() {
-                        self.s.y_north = false;
                     }
                 });
             });
@@ -542,17 +618,21 @@ impl eframe::App for App {
 }
 
 pub(crate) fn format_solution_copy(s: &Solution) -> String {
-    let dial = s.dial_range_m();
     match s.delta_z_m {
         Some(dz) => {
-            if (dial - s.range_m).abs() > 0.5 {
+            if let Some(low) = s.weapons.sph2_low.filter(|l| l.blocked_at_m.is_none()) {
                 format!(
-                    "Sight: {:.0} m (Ground: {:.0} m, ΔZ: {:+.0} m), {:.1}° ({:.0} mil)",
-                    dial, s.range_m, dz, s.bearing_deg, s.bearing_mils()
+                    "DIST: {:.0} m (RISE: {:+.0} m), AZM: {:.1}° ({:.0} mil), SPH-2 LOW: {:.1} mil",
+                    s.range_m, dz, s.bearing_deg, s.bearing_mils(), low.mil
+                )
+            } else if let Some(high) = s.weapons.sph2_high.filter(|h| h.blocked_at_m.is_none()) {
+                format!(
+                    "DIST: {:.0} m (RISE: {:+.0} m), AZM: {:.1}° ({:.0} mil), SPH-2 HIGH: {:.1} mil",
+                    s.range_m, dz, s.bearing_deg, s.bearing_mils(), high.mil
                 )
             } else {
                 format!(
-                    "{:.0} m (3D: {:.0} m, ΔZ: {:+.0} m), {:.1}° ({:.0} mil)",
+                    "DIST: {:.0} m (3D: {:.0} m, RISE: {:+.0} m), AZM: {:.1}° ({:.0} mil)",
                     s.range_m, s.slant_range_m, dz, s.bearing_deg, s.bearing_mils()
                 )
             }
@@ -658,11 +738,11 @@ mod tests {
             app.s.map = crate::elevation::GameMap::Bakurani;
             app.s.saved_targets.push(SavedTarget {
                 name: "High Outpost".to_owned(),
-                coords: "x75.28, y102.90".to_owned(),
+                coords: "x95.62, y104.98".to_owned(),
             });
             app.target_name = "High Outpost".to_owned();
-            app.receive(coord(97.83, 109.32), 0.0);
-            app.receive(coord(75.28, 102.90), 0.0);
+            app.receive(coord(97.99, 109.57), 0.0);
+            app.receive(coord(95.62, 104.98), 0.0);
             app.flashed_at = [None; 2];
         }
         harness.run_steps(4);
@@ -688,7 +768,7 @@ mod tests {
         let target = Coord { x: 76.78, y: 103.61 };
         let sol_bakurani = Solution::between(me, target, 100.0, true, GameMap::Bakurani);
         let copy_bakurani = format_solution_copy(&sol_bakurani);
-        assert!(copy_bakurani.contains("Ground: 2197 m, ΔZ: +213 m"));
+        assert!(copy_bakurani.contains("DIST: 2197 m (RISE: +218 m)"), "got: {copy_bakurani}");
         assert!(copy_bakurani.contains("254.5° (4524 mil)"));
 
         let sol_flat = Solution::between(me, target, 100.0, true, GameMap::Flat);

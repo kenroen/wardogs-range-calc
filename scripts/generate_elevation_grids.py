@@ -1,119 +1,78 @@
 #!/usr/bin/env python3
 """
-Pre-bakes 512x512 elevation rasters for WARDOGS maps (Bakurani, Ozeti, Zestafona)
-from open-source community contour models.
+Downloads and encodes the 2048x2048 terrain heightfields for WARDOGS maps
+(Bakurani, Ozeti, Zestafona) from wardogs.zone.
 
-Each output file is a raw binary array of 512x512 little-endian signed 16-bit integers
-(524,288 bytes) representing elevation in decimeters (0.1 m resolution), spanning
-game coordinates X in [0.0, 163.2] and Y in [0.0, 163.2].
+Each output file is a 2D-delta + byte-transposed + zlib-compressed binary stream
+of the 2048x2048 uint16 heightfield cells, matching wardogs.zone's exact
+terrain heightfields cell-for-cell.
 """
 
-import json
+import io
 import os
-import sys
 import time
 import urllib.request
+import zlib
 import numpy as np
-import matplotlib.tri as mtri
-from scipy.ndimage import distance_transform_edt
+from PIL import Image
 
-GRID_SIZE = 512
-MAX_COORD = 163.2
+GRID_SIZE = 2048
 
 MAPS = {
-    "bakurani": "https://raw.githubusercontent.com/apollyon-sys/wardogs-calculator/main/data/terrain/bakurani/contours.json",
-    "ozeti": "https://raw.githubusercontent.com/apollyon-sys/wardogs-calculator/main/data/terrain/ozeti/contours.json",
-    "zestafona": "https://raw.githubusercontent.com/apollyon-sys/wardogs-calculator/main/data/terrain/zestafona/contours.json",
+    "bakurani": "https://wardogs.zone/game/maps/height/kavkazi.e92f4871.webp",
+    "ozeti": "https://wardogs.zone/game/maps/height/europe.a1ac244c.webp",
+    "zestafona": "https://wardogs.zone/game/maps/height/northamerica.c5373db8.webp",
 }
 
-OUT_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src", "assets", "terrain")
+OUT_DIR = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    "src",
+    "assets",
+    "terrain",
+)
 
-def generate_map(map_name, url):
-    print(f"Generating elevation grid for '{map_name}'...")
+
+def generate_map(map_name: str, url: str) -> None:
+    print(f"Fetching 2048x2048 heightfield for '{map_name}' from {url}...")
     t0 = time.time()
-    
-    # 1. Download and parse contours.json
-    req = urllib.request.Request(url, headers={"User-Agent": "wardogs-calc-generator/1.0"})
-    with urllib.request.urlopen(req) as resp:
-        data = json.loads(resp.read().decode("utf-8"))
-    
-    grid = data["grid"]
-    origin_x = float(grid["originX"])
-    origin_y = float(grid["originY"])
-    step_x = float(grid["stepX"])
-    step_y = float(grid["stepY"])
-    quantisation = float(data.get("quantisation", 10))
-    
-    # 2. Extract contour vertices (px, py, z)
-    xs, ys, zs = [], [], []
-    for level in data["levels"]:
-        z = float(level["relativeMeters"])
-        for flat in level.get("lines", []):
-            x = 0
-            y = 0
-            for i in range(0, len(flat), 2):
-                x += flat[i]
-                y += flat[i + 1]
-                px = origin_x + (x / quantisation) * step_x
-                py = origin_y - (y / quantisation) * step_y
-                xs.append(px)
-                ys.append(py)
-                zs.append(z)
-                
-    xs = np.array(xs, dtype=np.float32)
-    ys = np.array(ys, dtype=np.float32)
-    zs = np.array(zs, dtype=np.float32)
-    print(f"  Parsed {len(xs)} contour points in {time.time() - t0:.2f}s")
-    
-    # 3. Deduplicate points to clean up triangulation
-    coords = np.round(np.column_stack([xs, ys]), 2)
-    _, u_idx = np.unique(coords, axis=0, return_index=True)
-    xs_u, ys_u, zs_u = xs[u_idx], ys[u_idx], zs[u_idx]
-    
-    # 4. Triangulate and interpolate
-    tri = mtri.Triangulation(xs_u, ys_u)
-    interp = mtri.LinearTriInterpolator(tri, zs_u)
-    
-    gx = np.linspace(0.0, MAX_COORD, GRID_SIZE, dtype=np.float32)
-    gy = np.linspace(0.0, MAX_COORD, GRID_SIZE, dtype=np.float32)
-    grid_x, grid_y = np.meshgrid(gx, gy)
-    
-    z_grid = interp(grid_x, grid_y)
-    
-    # 5. Fill masked values (outside contour bounds) using nearest-neighbor
-    if np.ma.is_masked(z_grid):
-        mask = z_grid.mask
-        z_data = z_grid.data.copy()
-        z_data[mask] = np.nan
-        indices = distance_transform_edt(mask, return_distances=False, return_indices=True)
-        z_filled = z_data[tuple(indices)]
-    else:
-        z_filled = np.array(z_grid, dtype=np.float32)
-        
-    # Check for any remaining NaNs
-    if np.isnan(z_filled).any():
-        nan_mask = np.isnan(z_filled)
-        indices = distance_transform_edt(nan_mask, return_distances=False, return_indices=True)
-        z_filled = z_filled[tuple(indices)]
-        
-    print(f"  Elevation range: min={z_filled.min():.1f}m, max={z_filled.max():.1f}m")
-    
-    # 6. Convert to decimeters (i16) and write binary
-    z_decimeters = np.clip(np.round(z_filled * 10.0), -32768, 32767).astype("<i2")
-    
+    req = urllib.request.Request(url, headers={"User-Agent": "wardogs-range-calc/2.0"})
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        raw = resp.read()
+
+    img = Image.open(io.BytesIO(raw)).convert("RGBA")
+    assert img.size == (GRID_SIZE, GRID_SIZE), f"Unexpected size: {img.size}"
+
+    arr = np.array(img, dtype=np.uint16)
+    cells = ((arr[:, :, 0] << 8) | arr[:, :, 1]).astype("<i2")
+
+    # 2D delta encoding (horizontal then vertical)
+    d1 = np.empty_like(cells)
+    d1[:, 0] = cells[:, 0]
+    d1[:, 1:] = cells[:, 1:] - cells[:, :-1]
+
+    d2 = np.empty_like(d1)
+    d2[0, :] = d1[0, :]
+    d2[1:, :] = d1[1:, :] - d1[:-1, :]
+
+    u_d2 = d2.view("<u2").ravel()
+    transposed = np.concatenate([u_d2 & 0xFF, u_d2 >> 8]).astype(np.uint8)
+    compressed = zlib.compress(transposed.tobytes(), level=9)
+
     os.makedirs(OUT_DIR, exist_ok=True)
     out_path = os.path.join(OUT_DIR, f"{map_name}.bin")
     with open(out_path, "wb") as f:
-        f.write(z_decimeters.tobytes())
-        
-    file_size = os.path.getsize(out_path)
-    print(f"  Wrote {file_size} bytes to {out_path} (total time: {time.time() - t0:.2f}s)")
-    assert file_size == GRID_SIZE * GRID_SIZE * 2, f"Unexpected file size: {file_size}"
+        f.write(compressed)
 
-def main():
+    print(
+        f"  Wrote {len(compressed):,} bytes to {out_path} in {time.time() - t0:.2f}s"
+    )
+
+
+def main() -> None:
     for name, url in MAPS.items():
         generate_map(name, url)
-    print("\nAll elevation rasters generated successfully!")
+    print("\nAll 2048x2048 elevation rasters generated successfully!")
+
 
 if __name__ == "__main__":
     main()
