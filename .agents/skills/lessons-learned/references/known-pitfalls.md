@@ -54,3 +54,8 @@
 - **Symptom / Mistake**: PRs targeting `main` could be merged while `CI Validation` was still running or failing, and the workflow unnecessarily built a release binary and uploaded an artifact.
 - **Root Cause**: The `Protect main branch` repository ruleset (`25298684`) had `required_status_checks` enabled with an empty `required_status_checks: []` array, and `.github/workflows/validate.yml` had an unnecessary `if: github.head_ref == 'develop'` guard plus release build/artifact upload steps.
 - **Rule / Fix**: Keep `.github/workflows/validate.yml` focused strictly on validation (`cargo clippy --all-targets -- -D warnings` and `cargo test --locked --verbose`) with job name `Validate & Test (Windows)` on `pull_request` to `main`, and ensure the `Protect main branch` ruleset explicitly lists `{"context": "Validate & Test (Windows)", "integration_id": 15368}` under `required_status_checks`.
+
+### Always Ask Before Creating a Pull Request
+- **Symptom / Mistake**: Automatically running `gh pr create` right after committing/pushing changes without asking the user first.
+- **Root Cause**: Assuming PR creation should happen immediately at the end of a task.
+- **Rule / Fix**: Always switch to a new branch before making any changes, and **always ask the user for confirmation before creating a Pull Request (`gh pr create`)**.

@@ -66,9 +66,10 @@ python scripts/generate_elevation_grids.py
 3. **Testing**:
    - Every change to coordinate parsing, elevation sampling, or trajectory math must include unit tests in the corresponding module (`src/elevation.rs`, `src/ballistics.rs`, `src/coords.rs`, or `src/app.rs`).
 4. **Git & PR Workflow**:
-   - Create feature/fix branches off `develop` using descriptive prefixes (`feat/`, `fix/`, `docs/`, `chore/`).
+   - **Always switch to a new feature/fix branch off `develop` before making any changes** (`feat/`, `fix/`, `docs/`, `chore/`, `ci/`).
    - Use Conventional Commit messages (e.g., `fix(ballistics): ...`, `docs(readme): ...`). Wrap commit messages and PR bodies in single quotes (`'...'`) in PowerShell to prevent backtick interpolation.
-   - Open Pull Requests targeting `develop` (`main` is reserved for release merges from `develop`, which trigger `.github/workflows/validate.yml`).
+   - **Always ask the user for confirmation before creating a Pull Request (`gh pr create`)**. Never open a PR automatically without asking first.
+   - When approved by the user, open Pull Requests targeting `develop` (`main` is reserved for release merges from `develop`, which trigger `.github/workflows/validate.yml`).
    - Keep `README.md`, `assets/screenshot.png`, and `assets/screenshot_annotated.png` in sync whenever UI fields or layout change (use the `update-ui-screenshots` skill).
 5. **Self-Learning Loop & Workspace Skills (`.agents/skills/`)**:
    - **`lessons-learned`** (`.agents/skills/lessons-learned/SKILL.md`): Activate this skill before debugging or modifying ballistics/elevation math, and **always append a new entry** to `.agents/skills/lessons-learned/references/known-pitfalls.md` whenever a mistake, command error, test failure, or user correction occurs.
