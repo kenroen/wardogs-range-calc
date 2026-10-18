@@ -3475,6 +3475,7 @@ dependencies = [
  "eframe",
  "egui",
  "egui_kittest",
+ "miniz_oxide 0.8.9",
  "ron 0.8.1",
  "serde",
 ]
